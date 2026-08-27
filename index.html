@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hand Synth</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14181d;
+    --line: #252c34;
+    --text: #e6edf3;
+    --dim: #8b959e;
+    --on: #3ddc84;
+    --mod: #ffb454;
+    --bend: #7aa2f7;
+    --mute: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
+    display: grid; grid-template-columns: 1fr 300px; height: 100vh; overflow: hidden;
+  }
+  #stage { position: relative; background: #000; display: grid; place-items: center; overflow: hidden; }
+  #video { display: none; }
+  #overlay { max-width: 100%; max-height: 100vh; display: block; }
+
+  #gate {
+    position: absolute; inset: 0; background: rgba(11,13,16,.94);
+    display: grid; place-items: center; text-align: center; z-index: 10; padding: 24px;
+  }
+  #gate h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -.5px; }
+  #gate p { color: var(--dim); margin: 0 0 22px; max-width: 470px; }
+  button {
+    background: var(--on); color: #06210f; border: 0; padding: 12px 26px;
+    border-radius: 7px; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.ghost { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+                 font-weight: 400; padding: 7px 12px; }
+
+  #panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 16px; }
+  h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--dim);
+       margin: 22px 0 9px; font-weight: 600; }
+  h2:first-child { margin-top: 0; }
+
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .row label { color: var(--dim); font-size: 12px; }
+  select, input[type=range] { background: #0b0d10; color: var(--text); border: 1px solid var(--line);
+                              border-radius: 5px; padding: 4px 6px; font: inherit; font-size: 12px; }
+  input[type=range] { padding: 0; width: 130px; }
+
+  .keys { display: flex; flex-direction: column; gap: 3px; }
+  .key { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 5px;
+         background: #0b0d10; border: 1px solid var(--line); font-size: 12px; }
+  .key .who { color: var(--dim); width: 68px; flex: none; }
+  .key .what { flex: 1; text-align: right; font-weight: 600; }
+  .key.lit { background: rgba(61,220,132,.14); border-color: var(--on); }
+  .key.lit .what { color: var(--on); }
+  .key.mod.lit { background: rgba(255,180,84,.14); border-color: var(--mod); }
+  .key.mod.lit .what { color: var(--mod); }
+  .key.kill.lit { background: rgba(255,107,107,.16); border-color: var(--mute); }
+  .key.kill.lit .what { color: var(--mute); }
+  .key.fist { border-style: dashed; }
+
+  .meter { height: 5px; background: #0b0d10; border: 1px solid var(--line);
+           border-radius: 3px; overflow: hidden; margin-bottom: 9px; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--bend); }
+  .cap { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); margin-bottom: 2px; }
+  .cap b { color: var(--text); font-weight: 600; }
+  #status { font-size: 11px; color: var(--dim); margin-top: 14px; padding-top: 12px;
+            border-top: 1px solid var(--line); }
+  #status.err { color: #ff6b6b; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="video" playsinline></video>
+  <canvas id="overlay" width="1280" height="720"></canvas>
+  <div id="gate">
+    <div>
+      <h1>Hand Synth</h1>
+      <p>Right hand plays. Left hand controls. A closed right fist is the root note,
+         so to rest, drop your hand out of frame.<br><br>
+         Needs a webcam, and about 8MB of model download on first run.</p>
+      <button id="startBtn">Start</button>
+      <p id="gateNote" style="margin-top:18px;font-size:12px"></p>
+    </div>
+  </div>
+</div>
+
+<div id="panel">
+  <h2>Right hand &mdash; notes</h2>
+  <div class="keys" id="noteKeys"></div>
+
+  <h2>Left hand &mdash; control</h2>
+  <div class="keys" id="modKeys"></div>
+
+  <h2>Continuous</h2>
+  <div class="cap"><span>Brightness &mdash; right height</span><b id="cutoffVal">&mdash;</b></div>
+  <div class="meter"><i id="cutoffBar"></i></div>
+  <div class="cap"><span>Bend &mdash; right tilt</span><b id="bendVal">&mdash;</b></div>
+  <div class="meter"><i id="bendBar"></i></div>
+  <div class="cap"><span>Echo &mdash; left height</span><b id="echoVal">&mdash;</b></div>
+  <div class="meter"><i id="echoBar"></i></div>
+  <div class="cap"><span>Resonance &mdash; left tilt</span><b id="resVal">&mdash;</b></div>
+  <div class="meter"><i id="resBar"></i></div>
+
+  <h2>Setup</h2>
+  <div class="row"><label>Key</label><select id="rootSel"></select></div>
+  <div class="row"><label>Scale</label><select id="scaleSel"></select></div>
+  <div class="row"><label>Wave</label><select id="waveSel"></select></div>
+  <div class="row"><label>Bend range</label><select id="bendSel"></select></div>
+  <div class="row"><label>Fist = root</label><input type="checkbox" id="fistChk" checked></div>
+  <div class="row"><label>Volume</label><input type="range" id="volSlider" min="0" max="100" value="55"></div>
+  <div class="row"><label>Sensitivity</label><input type="range" id="sensSlider" min="0" max="100" value="50"></div>
+  <div class="row" style="margin-top:12px">
+    <button class="ghost" id="swapBtn">Swap hands</button>
+    <span id="swapState" style="font-size:11px;color:var(--dim)"></span>
+  </div>
+
+  <div id="status">Idle.</div>
+</div>
+
+<script type="module">
+import { FilesetResolver, HandLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+/* ------------------------------------------------------------------ *
+ * Layout of the instrument
+ *
+ * The right hand does nothing but pick notes, so its position and tilt
+ * stay free to be expressive. A closed fist is the root, which buys a
+ * sixth degree out of five fingers and means the left hand never has to
+ * carry notes - it is entirely controls.
+ *
+ * The cost of fist-as-a-note is that a resting hand drones. So resting is
+ * a position rather than a gesture: take the hand out of frame and the
+ * sound stops. A closed LEFT fist is the hard mute for everything else.
+ * ------------------------------------------------------------------ */
+const FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
+
+// Right hand: fist is degree 0, then one degree per finger.
+const FIST_DEGREE = 0;
+const NOTE_MAP = { thumb: 1, index: 2, middle: 3, ring: 4, pinky: 5 };
+
+// Left hand: every finger is a control, and a left fist mutes.
+const MODS = {
+  thumb:  { key: "sustain",  label: "Sustain" },
+  index:  { key: "octUp",    label: "Octave +12" },
+  middle: { key: "sharp",    label: "Sharp +1" },
+  ring:   { key: "octDown",  label: "Octave -12" },
+  pinky:  { key: "vibrato",  label: "Vibrato" },
+};
+
+const SCALES = {
+  "Major":            [0, 2, 4, 5, 7, 9, 11],
+  "Natural minor":    [0, 2, 3, 5, 7, 8, 10],
+  "Major pentatonic": [0, 2, 4, 7, 9, 12, 14],
+  "Minor pentatonic": [0, 3, 5, 7, 10, 12, 15],
+  "Blues":            [0, 3, 5, 6, 7, 10, 12],
+  "Dorian":           [0, 2, 3, 5, 7, 9, 10],
+};
+const ROOTS = { "C": 60, "C#": 61, "D": 62, "D#": 63, "E": 64, "F": 65,
+                "F#": 66, "G": 67, "G#": 68, "A": 69, "A#": 70, "B": 71 };
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+const cfg = { root: 60, scale: "Major", wave: "sawtooth", bendRange: 2,
+              volume: 0.55, sens: 0.5, swap: false, fistNote: true };
+
+/* ------------------------------------------------------------------ *
+ * Audio
+ *
+ * One voice per held degree. Everything shares a lowpass whose cutoff is
+ * driven by hand height, which is what makes a raised hand sound brighter
+ * rather than merely louder.
+ * ------------------------------------------------------------------ */
+let ctx, master, filter, delay, feedback, delaySend, vibOsc, vibDepth;
+const voices = new Map();
+const ATTACK = 0.012, DECAY = 0.10, SUSTAIN = 0.72, RELEASE = 0.22, PEAK = 0.28;
+const SPREAD = [-7, 7];
+
+function initAudio() {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+  master = ctx.createGain();
+  master.gain.value = cfg.volume;
+  master.connect(ctx.destination);
+
+  filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 2000;
+  filter.Q.value = 3;
+  filter.connect(master);
+
+  // Feedback delay fed from the filter output. Left hand height opens the send.
+  delay = ctx.createDelay(1.0);
+  delay.delayTime.value = 0.28;
+  feedback = ctx.createGain();
+  feedback.gain.value = 0.38;
+  delaySend = ctx.createGain();
+  delaySend.gain.value = 0;
+
+  filter.connect(delaySend);
+  delaySend.connect(delay);
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(master);
+
+  // One shared LFO wired into every voice's detune, so vibrato stays in
+  // phase across a chord instead of each note wobbling independently.
+  vibOsc = ctx.createOscillator();
+  vibOsc.frequency.value = 5.5;
+  vibDepth = ctx.createGain();
+  vibDepth.gain.value = 0;
+  vibOsc.connect(vibDepth);
+  vibOsc.start();
+}
+
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+
+function noteOn(slot, midi, bendCents) {
+  if (voices.has(slot)) return;
+  const t = ctx.currentTime;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(PEAK, t + ATTACK);
+  g.gain.linearRampToValueAtTime(PEAK * SUSTAIN, t + ATTACK + DECAY);
+  g.connect(filter);
+
+  // Two oscillators a few cents apart: one is thin and buzzy, two is a synth.
+  const oscs = SPREAD.map(cents => {
+    const o = ctx.createOscillator();
+    o.type = cfg.wave;
+    o.frequency.value = mtof(midi);
+    o.detune.value = bendCents + cents;
+    vibDepth.connect(o.detune);
+    o.connect(g);
+    o.start(t);
+    return o;
+  });
+
+  voices.set(slot, { oscs, g, midi });
+}
+
+function noteOff(slot) {
+  const v = voices.get(slot);
+  if (!v) return;
+  voices.delete(slot);
+  const t = ctx.currentTime;
+  v.g.gain.cancelScheduledValues(t);
+  v.g.gain.setValueAtTime(v.g.gain.value, t);
+  v.g.gain.linearRampToValueAtTime(0.0001, t + RELEASE);
+  v.oscs.forEach(o => {
+    o.stop(t + RELEASE + 0.02);
+    o.onended = () => { try { vibDepth.disconnect(o.detune); } catch (e) {} };
+  });
+}
+
+function allNotesOff() {
+  if (!ctx) return;
+  Array.from(voices.keys()).forEach(noteOff);
+}
+
+// Bend rides the live oscillators, so a held note slides rather than retriggers.
+function applyBend(cents) {
+  for (const v of voices.values()) {
+    v.oscs.forEach((o, i) => o.detune.setTargetAtTime(cents + SPREAD[i], ctx.currentTime, 0.02));
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Landmark geometry
+ *
+ * Every test below is scaled by hand size and measured from the wrist, so
+ * it survives the hand being near, far, or rotated - which the naive
+ * "is the tip above the knuckle" check does not.
+ * ------------------------------------------------------------------ */
+const TIP = { thumb: 4, index: 8, middle: 12, ring: 16, pinky: 20 };
+const PIP = { thumb: 3, index: 6, middle: 10, ring: 14, pinky: 18 };
+const WRIST = 0, MID_MCP = 9, PINKY_MCP = 17;
+
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0));
+
+// How far each finger is extended, normalised. Above zero means straight-ish.
+function extensionScores(lm) {
+  const size = dist(lm[WRIST], lm[MID_MCP]) || 1e-6;
+  const out = {};
+  for (const f of FINGERS) {
+    if (f === "thumb") {
+      // The thumb folds across the palm rather than back toward the wrist,
+      // so it needs the pinky knuckle as its reference instead.
+      out.thumb = (dist(lm[TIP.thumb], lm[PINKY_MCP]) - dist(lm[PIP.thumb], lm[PINKY_MCP])) / size;
+    } else {
+      out[f] = (dist(lm[WRIST], lm[TIP[f]]) - dist(lm[WRIST], lm[PIP[f]])) / size;
+    }
+  }
+  return out;
+}
+
+/* A finger sitting exactly on the threshold flickers, and a flickering
+ * finger machine-guns its note. Two thresholds plus a frame count is the
+ * whole difference between an instrument and a noise. */
+const HOLD_FRAMES = 2;
+// The fist waits longer, because passing through "all fingers down" on the
+// way between two notes would otherwise blip the root in between.
+const FIST_FRAMES = 5;
+
+function makeGate() {
+  const s = { fist: { on: false, count: 0 } };
+  for (const f of FINGERS) s[f] = { on: false, count: 0 };
+  return s;
+}
+
+// A hand that leaves frame must not carry its finger states back in with
+// it - stale gates fire a note for a frame or two the moment it returns.
+function resetGate(gate) {
+  gate.fist.on = gate.fist.count = 0;
+  for (const f of FINGERS) { gate[f].on = false; gate[f].count = 0; }
+}
+
+function debounce(g, want, frames) {
+  if (want === g.on) g.count = 0;
+  else if (++g.count >= frames) { g.on = want; g.count = 0; }
+}
+
+function updateGate(gate, scores) {
+  // Sensitivity slides both thresholds together, keeping the gap that stops chatter.
+  const bias = (cfg.sens - 0.5) * 0.16;
+  for (const f of FINGERS) {
+    const base = (f === "thumb" ? 0.12 : 0.06) - bias;
+    const g = gate[f];
+    debounce(g, g.on ? scores[f] > base - 0.05 : scores[f] > base, HOLD_FRAMES);
+  }
+  debounce(gate.fist, FINGERS.every(f => !gate[f].on), FIST_FRAMES);
+  return gate;
+}
+
+const gates = { Right: makeGate(), Left: makeGate() };
+
+// Exponential smoothing on the continuous controls - raw landmark values
+// jitter enough to be audible as a warble.
+function smoother(a) {
+  let v = null;
+  return x => (v = v === null ? x : v + (x - v) * a);
+}
+const smoothHeightR = smoother(0.25), smoothHeightL = smoother(0.25);
+const smoothRollR = smoother(0.30), smoothRollL = smoother(0.25);
+
+// Angle of the palm away from vertical, in degrees. Tilt right is positive.
+function rollDegrees(lm) {
+  const vx = lm[MID_MCP].x - lm[WRIST].x;
+  const vy = lm[MID_MCP].y - lm[WRIST].y;
+  let deg = Math.atan2(vy, vx) * 180 / Math.PI + 90; // 0 = pointing straight up
+  while (deg > 180) deg -= 360;
+  while (deg < -180) deg += 360;
+  return deg;
+}
+
+const clamp01 = x => Math.min(Math.max(x, 0), 1);
+
+/* ------------------------------------------------------------------ *
+ * Panel
+ * ------------------------------------------------------------------ */
+const $ = id => document.getElementById(id);
+const noteKeyEls = {}, modKeyEls = {};
+
+function degreeToMidi(degree, sharp, octUp, octDown) {
+  const steps = SCALES[cfg.scale];
+  const oct = Math.floor(degree / steps.length);
+  const semis = steps[degree % steps.length] + oct * 12;
+  return cfg.root + semis + (sharp ? 1 : 0) + (octUp ? 12 : 0) - (octDown ? 12 : 0);
+}
+const midiName = m => NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+
+function keyRow(who, what, cls) {
+  const el = document.createElement("div");
+  el.className = cls;
+  el.innerHTML = '<span class="who">' + who + '</span><span class="what">' + what + '</span>';
+  return el;
+}
+
+function buildPanel() {
+  $("noteKeys").innerHTML = "";
+  $("modKeys").innerHTML = "";
+
+  noteKeyEls.fist = keyRow("R fist", midiName(degreeToMidi(FIST_DEGREE)), "key fist");
+  $("noteKeys").appendChild(noteKeyEls.fist);
+  for (const f of FINGERS) {
+    noteKeyEls[f] = keyRow("R " + f, midiName(degreeToMidi(NOTE_MAP[f])), "key");
+    $("noteKeys").appendChild(noteKeyEls[f]);
+  }
+
+  modKeyEls.fist = keyRow("L fist", "Mute", "key kill fist");
+  $("modKeys").appendChild(modKeyEls.fist);
+  for (const f of FINGERS) {
+    modKeyEls[f] = keyRow("L " + f, MODS[f].label, "key mod");
+    $("modKeys").appendChild(modKeyEls[f]);
+  }
+}
+
+function fillSelect(el, items, initial) {
+  el.innerHTML = "";
+  for (const k of items) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k;
+    if (k === initial) o.selected = true;
+    el.appendChild(o);
+  }
+}
+
+fillSelect($("rootSel"), Object.keys(ROOTS), "C");
+fillSelect($("scaleSel"), Object.keys(SCALES), "Major");
+fillSelect($("waveSel"), ["sawtooth", "square", "triangle", "sine"], "sawtooth");
+fillSelect($("bendSel"), ["1", "2", "5", "12"], "2");
+buildPanel();
+
+$("rootSel").onchange = e => { cfg.root = ROOTS[e.target.value]; allNotesOff(); buildPanel(); };
+$("scaleSel").onchange = e => { cfg.scale = e.target.value; allNotesOff(); buildPanel(); };
+$("waveSel").onchange = e => {
+  cfg.wave = e.target.value;
+  for (const v of voices.values()) v.oscs.forEach(o => { o.type = cfg.wave; });
+};
+$("bendSel").onchange = e => { cfg.bendRange = +e.target.value; };
+$("fistChk").onchange = e => { cfg.fistNote = e.target.checked; if (!cfg.fistNote) noteOff("R:fist"); };
+$("volSlider").oninput = e => { cfg.volume = e.target.value / 100; if (master) master.gain.value = cfg.volume; };
+$("sensSlider").oninput = e => { cfg.sens = e.target.value / 100; };
+$("swapBtn").onclick = () => {
+  cfg.swap = !cfg.swap;
+  allNotesOff();
+  $("swapState").textContent = cfg.swap ? "swapped" : "";
+};
+
+function setStatus(msg, err) {
+  $("status").textContent = msg;
+  $("status").className = err ? "err" : "";
+}
+
+function setBar(name, frac, text) {
+  $(name + "Bar").style.width = Math.round(clamp01(frac) * 100) + "%";
+  $(name + "Val").textContent = text;
+}
+
+/* ------------------------------------------------------------------ *
+ * Tracking loop
+ * ------------------------------------------------------------------ */
+const video = $("video"), canvas = $("overlay"), g2 = canvas.getContext("2d");
+let landmarker = null, lastVideoTime = -1;
+
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+               [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+$("startBtn").onclick = async () => {
+  const btn = $("startBtn");
+  btn.disabled = true;
+  btn.textContent = "Starting...";
+  try {
+    $("gateNote").textContent = "Requesting camera...";
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    video.srcObject = stream;
+    await video.play();
+
+    $("gateNote").textContent = "Downloading hand model...";
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    landmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+        delegate: "GPU",
+      },
+      runningMode: "VIDEO",
+      numHands: 2,
+      minHandDetectionConfidence: 0.6,
+      minHandPresenceConfidence: 0.6,
+      minTrackingConfidence: 0.6,
+    });
+
+    initAudio();
+    if (ctx.state === "suspended") await ctx.resume();
+
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    $("gate").style.display = "none";
+    setStatus("Running. Show your right hand to play.");
+    requestAnimationFrame(loop);
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = "Retry";
+    $("gateNote").textContent = "";
+    setStatus("Failed: " + err.message, true);
+    console.error(err);
+  }
+};
+
+function loop() {
+  requestAnimationFrame(loop);
+  if (!landmarker || video.readyState < 2) return;
+  if (video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+
+  const res = landmarker.detectForVideo(video, performance.now());
+
+  // Draw mirrored so the picture behaves like a mirror. Landmark x is
+  // flipped to match, and every calculation below uses the flipped values.
+  g2.save();
+  g2.setTransform(-1, 0, 0, 1, canvas.width, 0);
+  g2.drawImage(video, 0, 0, canvas.width, canvas.height);
+  g2.restore();
+  g2.fillStyle = "rgba(11,13,16,.35)";
+  g2.fillRect(0, 0, canvas.width, canvas.height);
+
+  const hands = { Right: null, Left: null };
+  const count = (res.landmarks && res.landmarks.length) || 0;
+  for (let i = 0; i < count; i++) {
+    const lm = res.landmarks[i].map(p => ({ x: 1 - p.x, y: p.y, z: p.z }));
+    // MediaPipe labels from the camera's point of view; mirroring the image
+    // flips which hand is which, so the label has to flip too.
+    let side = res.handedness[i][0].categoryName === "Left" ? "Right" : "Left";
+    if (cfg.swap) side = side === "Right" ? "Left" : "Right";
+    hands[side] = lm;
+  }
+
+  let upR = null, upL = null;
+  if (hands.Right) upR = updateGate(gates.Right, extensionScores(hands.Right));
+  else resetGate(gates.Right);
+  if (hands.Left) upL = updateGate(gates.Left, extensionScores(hands.Left));
+  else resetGate(gates.Left);
+
+  // Left hand absent means no modifiers at all - plain notes, no mute.
+  const muted   = !!(upL && upL.fist.on);
+  const sustain = !!(upL && upL.thumb.on);
+  const octUp   = !!(upL && upL.index.on);
+  const sharp   = !!(upL && upL.middle.on);
+  const octDown = !!(upL && upL.ring.on);
+  const vibrato = !!(upL && upL.pinky.on);
+
+  // Continuous controls are read before any note starts, so a note played
+  // mid-bend opens already in tune with the ones around it.
+  let bendCents = 0;
+
+  if (hands.Right) {
+    const hs = smoothHeightR(1 - clamp01(hands.Right[WRIST].y));   // 0 low, 1 high
+    const cutHz = 220 * Math.pow(38, hs);                           // ~220Hz to ~8.3kHz, log
+    const roll = smoothRollR(rollDegrees(hands.Right));
+    bendCents = Math.max(-1, Math.min(1, roll / 55)) * cfg.bendRange * 100;
+    filter.frequency.setTargetAtTime(cutHz, ctx.currentTime, 0.03);
+    applyBend(bendCents);
+    setBar("cutoff", hs, Math.round(cutHz) + " Hz");
+    setBar("bend", (bendCents / (cfg.bendRange * 100) + 1) / 2,
+           (bendCents >= 0 ? "+" : "") + (bendCents / 100).toFixed(2) + " st");
+  } else {
+    setBar("cutoff", 0, "--");
+    setBar("bend", 0.5, "--");
+  }
+
+  if (hands.Left) {
+    const echo = smoothHeightL(1 - clamp01(hands.Left[WRIST].y));
+    delaySend.gain.setTargetAtTime(muted ? 0 : echo * 0.6, ctx.currentTime, 0.05);
+    setBar("echo", echo, Math.round(echo * 100) + "%");
+
+    const rollL = smoothRollL(rollDegrees(hands.Left));
+    const q = 1 + clamp01((rollL + 55) / 110) * 17;                 // Q 1 to 18
+    filter.Q.setTargetAtTime(q, ctx.currentTime, 0.05);
+    setBar("res", (q - 1) / 17, q.toFixed(1));
+
+    vibDepth.gain.setTargetAtTime(vibrato ? 35 : 0, ctx.currentTime, 0.08);
+  } else {
+    delaySend.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+    filter.Q.setTargetAtTime(3, ctx.currentTime, 0.1);
+    vibDepth.gain.setTargetAtTime(0, ctx.currentTime, 0.08);
+    setBar("echo", 0, "--");
+    setBar("res", 0, "--");
+  }
+
+  // --- note on / off ------------------------------------------------
+  // No right hand, or a left fist, means nothing should be sounding. That
+  // is the rest: the instrument is silent by default, not droning.
+  const wanted = new Set();
+  if (upR && !muted) {
+    for (const f of FINGERS) if (upR[f].on) wanted.add("R:" + f);
+    if (cfg.fistNote && upR.fist.on) wanted.add("R:fist");
+  }
+
+  for (const slot of wanted) {
+    if (voices.has(slot)) continue;
+    const finger = slot.slice(2);
+    const degree = finger === "fist" ? FIST_DEGREE : NOTE_MAP[finger];
+    noteOn(slot, degreeToMidi(degree, sharp, octUp, octDown), bendCents);
+  }
+  // Sustain holds dropped fingers, but never survives a mute or a hand
+  // leaving frame - otherwise a stuck note has no way to be stopped.
+  if (!sustain || muted || !hands.Right) {
+    for (const slot of Array.from(voices.keys())) if (!wanted.has(slot)) noteOff(slot);
+  }
+
+  // --- drawing and panel --------------------------------------------
+  if (hands.Right) drawHand(hands.Right, upR, "R");
+  if (hands.Left) drawHand(hands.Left, upL, "L");
+
+  noteKeyEls.fist.classList.toggle("lit", !!(upR && upR.fist.on && cfg.fistNote && !muted));
+  modKeyEls.fist.classList.toggle("lit", muted);
+  for (const f of FINGERS) {
+    noteKeyEls[f].classList.toggle("lit", !!(upR && upR[f].on && !muted));
+    modKeyEls[f].classList.toggle("lit", !!(upL && upL[f].on && !muted));
+  }
+
+  const label = (el, degree) => {
+    const want = midiName(degreeToMidi(degree, sharp, octUp, octDown));
+    const node = el.querySelector(".what");
+    if (node.textContent !== want) node.textContent = want;
+  };
+  label(noteKeyEls.fist, FIST_DEGREE);
+  for (const f of FINGERS) label(noteKeyEls[f], NOTE_MAP[f]);
+
+  if (muted) setStatus("Muted - left fist closed.");
+  else if (!hands.Right) setStatus("Resting. Raise your right hand to play.");
+  else setStatus("Playing. " + voices.size + (voices.size === 1 ? " voice" : " voices") +
+                 " sounding." + (sustain ? "  [sustain]" : "") + (vibrato ? "  [vibrato]" : ""));
+}
+
+function drawHand(lm, gate, tag) {
+  const W = canvas.width, H = canvas.height;
+  const fist = gate && gate.fist.on;
+
+  g2.lineWidth = 3;
+  g2.strokeStyle = tag === "R" ? "rgba(122,162,247,.55)" : "rgba(255,180,84,.55)";
+  g2.beginPath();
+  for (const bone of BONES) {
+    g2.moveTo(lm[bone[0]].x * W, lm[bone[0]].y * H);
+    g2.lineTo(lm[bone[1]].x * W, lm[bone[1]].y * H);
+  }
+  g2.stroke();
+
+  // A closed fist is a note (right) or the mute (left), so ring the palm
+  // rather than leaving the hand looking like it is doing nothing.
+  if (fist) {
+    g2.beginPath();
+    g2.arc(lm[MID_MCP].x * W, lm[MID_MCP].y * H, dist(lm[WRIST], lm[MID_MCP]) * W * 1.1, 0, Math.PI * 2);
+    g2.lineWidth = 5;
+    g2.strokeStyle = tag === "R" ? "#3ddc84" : "#ff6b6b";
+    g2.stroke();
+  }
+
+  for (const f of FINGERS) {
+    const on = gate && gate[f].on;
+    g2.beginPath();
+    g2.arc(lm[TIP[f]].x * W, lm[TIP[f]].y * H, on ? 13 : 7, 0, Math.PI * 2);
+    g2.fillStyle = on ? (tag === "R" ? "#3ddc84" : "#ffb454") : "rgba(230,237,243,.30)";
+    g2.fill();
+  }
+
+  g2.fillStyle = "rgba(230,237,243,.75)";
+  g2.font = "600 20px ui-monospace, monospace";
+  g2.textAlign = "center";
+  g2.fillText(tag === "R" ? "NOTES" : "CONTROL", lm[WRIST].x * W, lm[WRIST].y * H + 34);
+}
+</script>
+</body>
+</html>

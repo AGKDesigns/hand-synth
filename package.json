@@ -1,0 +1,13 @@
+{
+  "name": "hand-synth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Webcam hand tracking as a synthesiser - MediaPipe hand landmarks driving Web Audio",
+  "scripts": {
+    "start": "node serve.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
