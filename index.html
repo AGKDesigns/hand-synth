@@ -14,7 +14,6 @@
     --on: #3ddc84;
     --mod: #ffb454;
     --bend: #7aa2f7;
-    --mute: #ff6b6b;
   }
   * { box-sizing: border-box; }
   body {
@@ -31,7 +30,7 @@
     display: grid; place-items: center; text-align: center; z-index: 10; padding: 24px;
   }
   #gate h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -.5px; }
-  #gate p { color: var(--dim); margin: 0 0 22px; max-width: 470px; }
+  #gate p { color: var(--dim); margin: 0 0 22px; max-width: 500px; }
   button {
     background: var(--on); color: #06210f; border: 0; padding: 12px 26px;
     border-radius: 7px; font: inherit; font-weight: 700; cursor: pointer;
@@ -54,15 +53,12 @@
   .keys { display: flex; flex-direction: column; gap: 3px; }
   .key { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 5px;
          background: #0b0d10; border: 1px solid var(--line); font-size: 12px; }
-  .key .who { color: var(--dim); width: 68px; flex: none; }
+  .key .who { color: var(--dim); width: 96px; flex: none; }
   .key .what { flex: 1; text-align: right; font-weight: 600; }
   .key.lit { background: rgba(61,220,132,.14); border-color: var(--on); }
   .key.lit .what { color: var(--on); }
   .key.mod.lit { background: rgba(255,180,84,.14); border-color: var(--mod); }
   .key.mod.lit .what { color: var(--mod); }
-  .key.kill.lit { background: rgba(255,107,107,.16); border-color: var(--mute); }
-  .key.kill.lit .what { color: var(--mute); }
-  .key.fist { border-style: dashed; }
 
   .meter { height: 5px; background: #0b0d10; border: 1px solid var(--line);
            border-radius: 3px; overflow: hidden; margin-bottom: 9px; }
@@ -82,8 +78,16 @@
   <div id="gate">
     <div>
       <h1>Hand Synth</h1>
-      <p>Right hand plays. Left hand controls. A closed right fist is the root note,
-         so to rest, drop your hand out of frame.<br><br>
+      <p>Your right hand owns the chord. Hold up one finger for the I, two for the II,
+         and so on up to seven. Tilt that hand either way to get the other quality —
+         major becomes minor, minor becomes major — and raise or lower it to swell
+         the volume.<br><br>
+         Your left hand only modifies. Its four fingers count the voicing — one for
+         the plain triad, two for a first inversion, three for a seventh, four for a
+         dominant or diminished seventh — its thumb jumps an octave, its tilt opens
+         and closes the filter, and its height feeds the echo. Out of frame you get
+         plain triads and nothing else changes.<br><br>
+         Space pauses. Swap hands if the roles come out backwards.<br><br>
          Needs a webcam, and about 8MB of model download on first run.</p>
       <button id="startBtn">Start</button>
       <p id="gateNote" style="margin-top:18px;font-size:12px"></p>
@@ -92,33 +96,49 @@
 </div>
 
 <div id="panel">
-  <h2>Right hand &mdash; notes</h2>
+  <h2>Chord hand &mdash; which chord</h2>
   <div class="keys" id="noteKeys"></div>
 
-  <h2>Left hand &mdash; control</h2>
+  <h2>Chord hand &mdash; what kind</h2>
   <div class="keys" id="modKeys"></div>
 
+  <h2>Modifier hand &mdash; voicing</h2>
+  <div class="keys" id="voiceKeys"></div>
+
   <h2>Continuous</h2>
-  <div class="cap"><span>Brightness &mdash; right height</span><b id="cutoffVal">&mdash;</b></div>
-  <div class="meter"><i id="cutoffBar"></i></div>
-  <div class="cap"><span>Bend &mdash; right tilt</span><b id="bendVal">&mdash;</b></div>
-  <div class="meter"><i id="bendBar"></i></div>
-  <div class="cap"><span>Echo &mdash; left height</span><b id="echoVal">&mdash;</b></div>
+  <div class="cap"><span>Volume &mdash; chord height</span><b id="swellVal">&mdash;</b></div>
+  <div class="meter"><i id="swellBar"></i></div>
+  <div class="cap"><span>Tilt &mdash; chord hand</span><b id="tiltVal">&mdash;</b></div>
+  <div class="meter"><i id="tiltBar"></i></div>
+  <div class="cap"><span>Filter &mdash; modifier tilt</span><b id="cutVal">&mdash;</b></div>
+  <div class="meter"><i id="cutBar"></i></div>
+  <div class="cap"><span>Echo &mdash; modifier height</span><b id="echoVal">&mdash;</b></div>
   <div class="meter"><i id="echoBar"></i></div>
-  <div class="cap"><span>Resonance &mdash; left tilt</span><b id="resVal">&mdash;</b></div>
-  <div class="meter"><i id="resBar"></i></div>
+  <div class="cap"><span>Thumb &mdash; vs threshold</span><b id="thumbVal">&mdash;</b></div>
+  <div class="meter"><i id="thumbBar"></i></div>
+  <div class="cap"><span>Camera</span><b id="fpsVal">&mdash;</b></div>
+  <div class="meter"><i id="fpsBar"></i></div>
 
   <h2>Setup</h2>
+  <div class="row"><label>Mode</label><select id="modeSel"></select></div>
   <div class="row"><label>Key</label><select id="rootSel"></select></div>
   <div class="row"><label>Scale</label><select id="scaleSel"></select></div>
   <div class="row"><label>Wave</label><select id="waveSel"></select></div>
-  <div class="row"><label>Bend range</label><select id="bendSel"></select></div>
-  <div class="row"><label>Fist = root</label><input type="checkbox" id="fistChk" checked></div>
-  <div class="row"><label>Volume</label><input type="range" id="volSlider" min="0" max="100" value="55"></div>
+  <div class="row"><label>Octave</label><select id="octSel"></select></div>
+  <div class="row"><label>Master</label><input type="range" id="volSlider" min="0" max="100" value="55"></div>
+  <div class="row"><label>Vibrato</label><input type="range" id="vibSlider" min="0" max="40" value="8"></div>
+  <div class="row"><label>Reach</label><input type="range" id="reachSlider" min="15" max="100" value="30"></div>
+  <div class="row"><label>Settle</label><input type="range" id="settleSlider" min="60" max="600" step="20" value="260"></div>
+  <div class="row"><label>Rotation</label><input type="range" id="tiltSlider" min="12" max="40" value="25"></div>
   <div class="row"><label>Sensitivity</label><input type="range" id="sensSlider" min="0" max="100" value="50"></div>
+  <div class="row"><label>Thumb</label><input type="range" id="thumbSlider" min="0" max="100" value="50"></div>
+  <div class="row" style="margin-top:12px">
+    <button class="ghost" id="pauseBtn">Pause</button>
+    <span style="font-size:11px;color:var(--dim)">or press space</span>
+  </div>
   <div class="row" style="margin-top:12px">
     <button class="ghost" id="swapBtn">Swap hands</button>
-    <span id="swapState" style="font-size:11px;color:var(--dim)"></span>
+    <span id="swapState" style="font-size:11px;color:var(--dim)">chord = right</span>
   </div>
 
   <div id="status">Idle.</div>
@@ -130,29 +150,110 @@ import { FilesetResolver, HandLandmarker } from "https://cdn.jsdelivr.net/npm/@m
 /* ------------------------------------------------------------------ *
  * Layout of the instrument
  *
- * The right hand does nothing but pick notes, so its position and tilt
- * stay free to be expressive. A closed fist is the root, which buys a
- * sixth degree out of five fingers and means the left hand never has to
- * carry notes - it is entirely controls.
+ * One hand says WHICH chord, the other says WHAT KIND. That split is the
+ * whole design: neither hand is a bag of unrelated switches, and either
+ * one is comprehensible without the other.
  *
- * The cost of fist-as-a-note is that a resting hand drones. So resting is
- * a position rather than a gesture: take the hand out of frame and the
- * sound stops. A closed LEFT fist is the hard mute for everything else.
+ * Chord hand: how many fingers are up is the scale degree. Nothing to
+ * memorise - one finger is the I, four fingers is the IV. Which fingers
+ * they are does not matter, with two named exceptions below. Its tilt picks
+ * major or minor; held flat, or out of frame, the key decides, so doing
+ * nothing gives you chords that belong together.
+ *
+ * Modifier hand: it cannot change a note. Four fingers count the voicing,
+ * the thumb jumps an octave, tilt is the filter, height is the echo. Every
+ * chord is reachable without it.
+ *
+ * A closed chord hand is not a gesture, it is zero fingers, and zero
+ * fingers is silence.
  * ------------------------------------------------------------------ */
 const FINGERS = ["thumb", "index", "middle", "ring", "pinky"];
 
-// Right hand: fist is degree 0, then one degree per finger.
-const FIST_DEGREE = 0;
-const NOTE_MAP = { thumb: 1, index: 2, middle: 3, ring: 4, pinky: 5 };
+/* Five fingers only counts to five, and a key has seven degrees. Two named
+ * finger sets are the escape hatch for the last two. They have to be tested
+ * before the count, because as counts they would read as II and III. */
+const COMBOS = [
+  { degree: 7, fingers: ["index", "pinky", "thumb"] },
+  { degree: 6, fingers: ["index", "pinky"] },
+];
 
-// Left hand: every finger is a control, and a left fist mutes.
-const MODS = {
-  thumb:  { key: "sustain",  label: "Sustain" },
-  index:  { key: "octUp",    label: "Octave +12" },
-  middle: { key: "sharp",    label: "Sharp +1" },
-  ring:   { key: "octDown",  label: "Octave -12" },
-  pinky:  { key: "vibrato",  label: "Vibrato" },
+const DEGREE_ROWS = [
+  { degree: 1, label: "1 finger" },
+  { degree: 2, label: "2 fingers" },
+  { degree: 3, label: "3 fingers" },
+  { degree: 4, label: "4 fingers" },
+  { degree: 5, label: "5 fingers" },
+  { degree: 6, label: "index+pinky" },
+  { degree: 7, label: "… + thumb" },
+];
+
+/* Two stops rather than three. A third stop that names an absolute quality
+ * is dead half the time: on the I, "major" is already what the key said, and
+ * on the ii it is "minor" that does nothing. Which half is dead changes per
+ * chord, which is worse than either. A flip always changes something. */
+/* Two ways to decide what the seven hand positions mean.
+ *
+ * scale   - degrees of a key. You cannot play a wrong note, and you cannot
+ *           leave the key either.
+ * letters - the seven natural roots A to G, with the modifier thumb as a
+ *           sharp. Sharping the naturals yields A# C# D# F# G# - exactly the
+ *           five black keys, since B# and E# are just C and F - so naturals
+ *           plus one toggle reaches all twelve roots, and flats come free
+ *           enharmonically. Twelve roots by two qualities is every common
+ *           triad. The key protects you no longer; that is the trade. */
+const MODES = { scale: "Scale degrees", letters: "Letters A-G" };
+
+// One ascending run from A, as semitones from C.
+const LETTERS = [
+  { name: "A", semis: -3 }, { name: "B", semis: -1 }, { name: "C", semis: 0 },
+  { name: "D", semis: 2 },  { name: "E", semis: 4 },  { name: "F", semis: 5 },
+  { name: "G", semis: 7 },
+];
+
+const QUALITY_ROWS = [
+  { id: "keyed",   label: "Flat",        scale: "In key",        letters: "Major" },
+  { id: "flipped", label: "Tilt either", scale: "The other one", letters: "Minor" },
+];
+
+// Diminished has no opposite, so it flips to major - the leading tone turning
+// into a secondary dominant is the most useful thing it can become.
+const FLIP = { maj: "min", min: "maj", dim: "maj" };
+
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII"];
+const QUALITY_TEXT = { maj: "Major", min: "Minor", dim: "Diminished" };
+
+/* The modifier hand counts on its four fingers only, which leaves the thumb
+ * free to be the octave. Counting on a finger that also carries a separate
+ * toggle would make the two fight for the same knuckle. */
+const VOICING_FINGERS = ["index", "middle", "ring", "pinky"];
+
+const VOICING_ROWS = [
+  { n: 1, label: "1 finger",  text: "Root position" },
+  { n: 2, label: "2 fingers", text: "1st inversion" },
+  { n: 3, label: "3 fingers", text: "7th" },
+  { n: 4, label: "4 fingers", text: "Dom / dim 7th" },
+];
+
+/* Intervals above the root, per voicing and per quality. 1 is the plain
+ * triad; 2 lifts the root an octave so the third sits in the bass; 3 and 4
+ * add a seventh, which one depending on what the chord already is. */
+const VOICED = {
+  1: { maj: [0, 4, 7],     min: [0, 3, 7],     dim: [0, 3, 6] },
+  2: { maj: [4, 7, 12],    min: [3, 7, 12],    dim: [3, 6, 12] },
+  3: { maj: [0, 4, 7, 11], min: [0, 3, 7, 10], dim: [0, 3, 6, 10] },
+  4: { maj: [0, 4, 7, 10], min: [0, 3, 6, 9],  dim: [0, 3, 6, 9] },
 };
+
+// How the chord symbol changes with the voicing. First inversion keeps the
+// triad's own suffix and gets a slash bass appended instead.
+const SUFFIX = {
+  1: { maj: "",     min: "m",   dim: "°" },
+  2: { maj: "",     min: "m",   dim: "°" },
+  3: { maj: "maj7", min: "m7",  dim: "m7♭5" },
+  4: { maj: "7",    min: "°7",  dim: "°7" },
+};
+
+const VOICING_TEXT = { 1: "Root position", 2: "1st inversion", 3: "7th", 4: "Dom / dim 7th" };
 
 const SCALES = {
   "Major":            [0, 2, 4, 5, 7, 9, 11],
@@ -166,19 +267,31 @@ const ROOTS = { "C": 60, "C#": 61, "D": 62, "D#": 63, "E": 64, "F": 65,
                 "F#": 66, "G": 67, "G#": 68, "A": 69, "A#": 70, "B": 71 };
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-const cfg = { root: 60, scale: "Major", wave: "sawtooth", bendRange: 2,
-              volume: 0.55, sens: 0.5, swap: false, fistNote: true };
+const cfg = { mode: "letters", root: 60, scale: "Major", wave: "sawtooth", octave: 0,
+              volume: 0.55, vibrato: 8, reach: 0.30, sens: 0.5, thumb: 0.5,
+              settleMs: 260, tiltOn: 25, swap: false };
 
 /* ------------------------------------------------------------------ *
  * Audio
  *
- * One voice per held degree. Everything shares a lowpass whose cutoff is
- * driven by hand height, which is what makes a raised hand sound brighter
- * rather than merely louder.
+ * One chord at a time. Right hand height runs a swell gain in front of
+ * the master, which is the theremin part: the chord is always there, the
+ * hand decides how loud it is.
+ *
+ * That same height also opens the filter, so a quiet chord is a dark one.
+ * It is how an acoustic instrument behaves, and it costs no extra gesture.
  * ------------------------------------------------------------------ */
-let ctx, master, filter, delay, feedback, delaySend, vibOsc, vibDepth;
-const voices = new Map();
-const ATTACK = 0.012, DECAY = 0.10, SUSTAIN = 0.72, RELEASE = 0.22, PEAK = 0.28;
+let ctx, master, filter, swell, delay, feedback, delaySend, vibOsc, vibDepth, analyser;
+let chord = null;              // { id, notes: [{ oscs, g, midi }] }
+let scope = null;              // Uint8Array the analyser writes into
+const ATTACK = 0.014, DECAY = 0.10, SUSTAIN = 0.72, RELEASE = 0.26, PEAK = 0.30;
+/* Reaching for index+pinky passes through index alone, which three frames
+ * later has settled and sounded the I. Rather than make every chord wait
+ * longer for the sake of two of them, a pose that could still be turning
+ * into a combo gets a slow attack instead: a chord you did not mean is
+ * replaced before it has finished arriving, and one you did mean swells,
+ * which on a pad reads as intent rather than as lag. */
+const SOFT_ATTACK = 0.19;
 const SPREAD = [-7, 7];
 
 function initAudio() {
@@ -188,13 +301,27 @@ function initAudio() {
   master.gain.value = cfg.volume;
   master.connect(ctx.destination);
 
+  // Tapped off the master so the drawn waveform includes the echo. An
+  // analyser needs no output connection - it reads whatever reaches it.
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  scope = new Uint8Array(analyser.fftSize);
+  master.connect(analyser);
+
+  // Swell sits between the filter and the master, so right hand height can
+  // ride the volume without fighting the user's own volume slider.
+  swell = ctx.createGain();
+  swell.gain.value = 0;
+  swell.connect(master);
+
   filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   filter.frequency.value = 2000;
-  filter.Q.value = 3;
-  filter.connect(master);
+  filter.Q.value = 2;            // fixed and modest: a chord through a
+  filter.connect(swell);         // resonant filter turns to mud
 
-  // Feedback delay fed from the filter output. Left hand height opens the send.
+  // Feedback delay fed post-swell, so lowering the hand stops feeding the
+  // delay but lets whatever is already in it ring out. Left height opens the send.
   delay = ctx.createDelay(1.0);
   delay.delayTime.value = 0.28;
   feedback = ctx.createGain();
@@ -202,31 +329,30 @@ function initAudio() {
   delaySend = ctx.createGain();
   delaySend.gain.value = 0;
 
-  filter.connect(delaySend);
+  swell.connect(delaySend);
   delaySend.connect(delay);
   delay.connect(feedback);
   feedback.connect(delay);
   delay.connect(master);
 
-  // One shared LFO wired into every voice's detune, so vibrato stays in
-  // phase across a chord instead of each note wobbling independently.
+  // One shared LFO into every note's detune, so a chord wobbles together
+  // instead of each note drifting on its own.
   vibOsc = ctx.createOscillator();
   vibOsc.frequency.value = 5.5;
   vibDepth = ctx.createGain();
-  vibDepth.gain.value = 0;
+  vibDepth.gain.value = cfg.vibrato;
   vibOsc.connect(vibDepth);
   vibOsc.start();
 }
 
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
-function noteOn(slot, midi, bendCents) {
-  if (voices.has(slot)) return;
+function makeNote(midi, peak, attack) {
   const t = ctx.currentTime;
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(PEAK, t + ATTACK);
-  g.gain.linearRampToValueAtTime(PEAK * SUSTAIN, t + ATTACK + DECAY);
+  g.gain.linearRampToValueAtTime(peak, t + attack);
+  g.gain.linearRampToValueAtTime(peak * SUSTAIN, t + attack + DECAY);
   g.connect(filter);
 
   // Two oscillators a few cents apart: one is thin and buzzy, two is a synth.
@@ -234,41 +360,111 @@ function noteOn(slot, midi, bendCents) {
     const o = ctx.createOscillator();
     o.type = cfg.wave;
     o.frequency.value = mtof(midi);
-    o.detune.value = bendCents + cents;
+    o.detune.value = cents;
     vibDepth.connect(o.detune);
     o.connect(g);
     o.start(t);
     return o;
   });
 
-  voices.set(slot, { oscs, g, midi });
+  return { oscs, g, midi };
 }
 
-function noteOff(slot) {
-  const v = voices.get(slot);
-  if (!v) return;
-  voices.delete(slot);
+function chordOff() {
+  if (!chord) return;
+  const notes = chord.notes;
+  chord = null;
   const t = ctx.currentTime;
-  v.g.gain.cancelScheduledValues(t);
-  v.g.gain.setValueAtTime(v.g.gain.value, t);
-  v.g.gain.linearRampToValueAtTime(0.0001, t + RELEASE);
-  v.oscs.forEach(o => {
-    o.stop(t + RELEASE + 0.02);
-    o.onended = () => { try { vibDepth.disconnect(o.detune); } catch (e) {} };
-  });
+  for (const v of notes) {
+    v.g.gain.cancelScheduledValues(t);
+    v.g.gain.setValueAtTime(v.g.gain.value, t);
+    v.g.gain.linearRampToValueAtTime(0.0001, t + RELEASE);
+    v.oscs.forEach(o => {
+      o.stop(t + RELEASE + 0.02);
+      o.onended = () => { try { vibDepth.disconnect(o.detune); } catch (e) {} };
+    });
+  }
+}
+
+// One chord at a time, so a new one replaces the old. The outgoing release
+// overlaps the incoming attack, which reads as a change rather than a gap.
+function chordTo(id, midis, attack) {
+  if (chord && chord.id === id) return;
+  chordOff();
+  // Equal-power-ish: four notes at full peak each would clip the master.
+  const peak = PEAK / Math.sqrt(midis.length);
+  chord = { id, notes: midis.map(m => makeNote(m, peak, attack)) };
 }
 
 function allNotesOff() {
-  if (!ctx) return;
-  Array.from(voices.keys()).forEach(noteOff);
+  if (ctx) chordOff();
 }
 
-// Bend rides the live oscillators, so a held note slides rather than retriggers.
-function applyBend(cents) {
-  for (const v of voices.values()) {
-    v.oscs.forEach((o, i) => o.detune.setTargetAtTime(cents + SPREAD[i], ctx.currentTime, 0.02));
-  }
+/* ------------------------------------------------------------------ *
+ * Harmony
+ * ------------------------------------------------------------------ */
+
+// Every scale here has seven entries, so stacking thirds is just indexing
+// two and four steps up and wrapping into the next octave.
+function scaleStep(i) {
+  const s = SCALES[cfg.scale];
+  return s[i % s.length] + Math.floor(i / s.length) * 12;
 }
+
+// What the key itself says this degree should be. Pentatonic and blues
+// scales stack into shapes that are not triads at all, so anything
+// unrecognised falls back to major rather than producing a chord that is
+// not one.
+function diatonicQuality(degree) {
+  const i = degree - 1;
+  const third = scaleStep(i + 2) - scaleStep(i);
+  const fifth = scaleStep(i + 4) - scaleStep(i);
+  if (third === 3 && fifth === 6) return "dim";
+  if (third === 3) return "min";
+  return "maj";
+}
+
+const isLetters = () => cfg.mode === "letters";
+
+function rootMidi(degree) {
+  return isLetters()
+    ? 60 + LETTERS[degree - 1].semis + cfg.octave * 12
+    : cfg.root + scaleStep(degree - 1) + cfg.octave * 12;
+}
+
+/* In scale mode, flat gives the chord that belongs to the key and tilting
+ * gives the other one. In letters mode there is no key to have an opinion,
+ * so flat is plain major and tilting is minor. */
+const qualityFor = (degree, flipped) => {
+  if (isLetters()) return flipped ? "min" : "maj";
+  const q = diatonicQuality(degree);
+  return flipped ? FLIP[q] : q;
+};
+
+// The degree picks the root, the quality picks the shape, the voicing picks
+// how it is stacked. The notes are always taken from a named chord rather
+// than from the raw scale stack, so they always sound like a chord even when
+// the scale is exotic.
+function chordMidis(degree, quality, voicing, shift) {
+  const r = rootMidi(degree) + shift;
+  return VOICED[voicing][quality].map(i => r + i);
+}
+
+const noteName = m => NOTE_NAMES[((m % 12) + 12) % 12];
+
+function chordName(degree, quality, voicing, shift = 0) {
+  const r = rootMidi(degree) + shift;
+  const name = noteName(r) + SUFFIX[voicing][quality];
+  // A first inversion is only a first inversion if you say what is underneath.
+  return voicing === 2 ? name + "/" + noteName(r + VOICED[2][quality][0]) : name;
+}
+
+// Roman numerals say where you are in a key. Letters mode has no key, so
+// there is nothing for them to say and the readout drops them.
+const romanName = (degree, quality) =>
+  isLetters() ? ""
+  : quality === "maj" ? ROMAN[degree - 1]
+                      : ROMAN[degree - 1].toLowerCase() + (quality === "dim" ? "°" : "");
 
 /* ------------------------------------------------------------------ *
  * Landmark geometry
@@ -300,44 +496,170 @@ function extensionScores(lm) {
 }
 
 /* A finger sitting exactly on the threshold flickers, and a flickering
- * finger machine-guns its note. Two thresholds plus a frame count is the
+ * finger changes the chord. Two thresholds plus a frame count is the
  * whole difference between an instrument and a noise. */
-const HOLD_FRAMES = 2;
-// The fist waits longer, because passing through "all fingers down" on the
-// way between two notes would otherwise blip the root in between.
-const FIST_FRAMES = 5;
+/* Every wait in here is in milliseconds, not frames.
+ *
+ * The loop runs once per camera frame, so a frame count means a different
+ * amount of time on every webcam - 7 frames is 230ms at 30fps and 117ms at
+ * 60fps. A finger transition takes however long it takes regardless, so a
+ * debounce that is fast enough on one machine lets chords through on
+ * another. Wall clock is the same everywhere. */
+const HOLD_MS = 60;
 
 function makeGate() {
-  const s = { fist: { on: false, count: 0 } };
-  for (const f of FINGERS) s[f] = { on: false, count: 0 };
+  const s = {};
+  for (const f of FINGERS) s[f] = { on: false, since: null };
   return s;
 }
 
 // A hand that leaves frame must not carry its finger states back in with
-// it - stale gates fire a note for a frame or two the moment it returns.
+// it - stale gates fire a chord for a frame or two the moment it returns.
 function resetGate(gate) {
-  gate.fist.on = gate.fist.count = 0;
-  for (const f of FINGERS) { gate[f].on = false; gate[f].count = 0; }
+  for (const f of FINGERS) { gate[f].on = false; gate[f].since = null; }
 }
 
-function debounce(g, want, frames) {
-  if (want === g.on) g.count = 0;
-  else if (++g.count >= frames) { g.on = want; g.count = 0; }
+function debounce(g, want, now) {
+  if (want === g.on) g.since = null;                       // nothing pending
+  else if (g.since === null) g.since = now;                // start the clock
+  else if (now - g.since >= HOLD_MS) { g.on = want; g.since = null; }
 }
 
-function updateGate(gate, scores) {
-  // Sensitivity slides both thresholds together, keeping the gap that stops chatter.
+/* The thumb needs its own threshold rather than a share of the fingers'.
+ * It travels across the palm instead of away from the wrist, so its score
+ * covers a much smaller range - which meant the one number that fit the
+ * fingers was one you had to stick your thumb right out to clear. Sliding
+ * both on a single control cannot fix that: loosening the thumb far enough
+ * to fire drops the fingers below where they start to chatter. */
+const thumbThreshold = () => 0.11 - (cfg.thumb - 0.5) * 0.10;   // 0.16 .. 0.06
+
+function updateGate(gate, scores, now) {
+  // Sensitivity slides the finger thresholds, keeping the gap that stops chatter.
   const bias = (cfg.sens - 0.5) * 0.16;
   for (const f of FINGERS) {
-    const base = (f === "thumb" ? 0.12 : 0.06) - bias;
+    const thumb = f === "thumb";
+    const base = thumb ? thumbThreshold() : 0.06 - bias;
+    // The thumb's gap is proportional rather than fixed: at the loose end
+    // of its slider a flat 0.035 would put the release below zero, so the
+    // gate could only let go of a thumb that was actively folded.
+    const gap = thumb ? Math.min(0.035, base * 0.5) : 0.05;
     const g = gate[f];
-    debounce(g, g.on ? scores[f] > base - 0.05 : scores[f] > base, HOLD_FRAMES);
+    debounce(g, g.on ? scores[f] > base - gap : scores[f] > base, now);
   }
-  debounce(gate.fist, FINGERS.every(f => !gate[f].on), FIST_FRAMES);
   return gate;
 }
 
-const gates = { Right: makeGate(), Left: makeGate() };
+/* Roles, not sides. The chord hand owns the harmony end to end - the degree
+ * from its finger count, major or minor from its tilt - so one hand decides
+ * what the chord IS and nothing else has a say. The other hand only bends
+ * and colours what it hears. Swap hands trades the two over. */
+const gates = { chord: makeGate(), mod: makeGate() };
+
+// Named sets win over the count, so index+pinky is the VI rather than a II.
+function rawDegree(gate) {
+  const up = FINGERS.filter(f => gate[f].on);
+  for (const c of COMBOS) {
+    if (c.fingers.length === up.length && c.fingers.every(f => gate[f].on)) return c.degree;
+  }
+  return up.length;             // 0 is silence, 1..5 are I..V
+}
+
+// Only the four fingers, so the thumb stays free to be the octave. Zero and
+// one both mean root position - a modifier hand doing nothing should not be
+// a different chord from a modifier hand asking for the plain triad.
+const rawVoicing = gate => Math.max(1, VOICING_FINGERS.reduce((a, f) => a + (gate[f].on ? 1 : 0), 0));
+
+/* Fingers do not all arrive on the same frame, so reaching for index+pinky
+ * reads as a plain one or two on the way there - and that is an audible
+ * wrong chord. Debouncing the individual fingers does not help, because
+ * each finger is behaving correctly; it is what they add up to that has to
+ * settle. Costs about 100ms on a change, which is the price of not blipping
+ * through chords you did not ask for.
+ *
+ * ONE settler, over the whole chord, not one per thing being counted.
+ *
+ * A chord here is a position, a quality, a voicing and a shift, and almost no
+ * change moves all four on the same frame. Settling them separately means
+ * whichever lands first commits on its own: going from three fingers to
+ * one-finger-minor drops two fingers and rotates the wrist, so the count
+ * arrives before the rotation does and you hear the one-finger MAJOR on the
+ * way past. No amount of debouncing the count fixes that, because the count
+ * was never wrong. Waiting until the whole description has stopped moving is
+ * what turns a gesture back into a single change.
+ *
+ * How long is a setting, because it is really a question about the player.
+ * Fingers do not arrive together, and the gap between the first and the last
+ * is what has to be waited out: too short and reaching for a four-finger
+ * chord sounds the three on the way. The cost is paid on every change, so
+ * this is a straight trade of latency against wrong chords. */
+const SETTLE_MIN_MS = 60;                                       // floor, not the value
+
+const SILENCE = { degree: 0, quality: null, voicing: 1, shift: 0, flip: false, key: "-" };
+
+// What the hands are asking for right now, before any of it has settled.
+function describe(chordGate, flip, modGate) {
+  const degree = chordGate ? rawDegree(chordGate) : 0;
+  if (!degree) return SILENCE;
+  const quality = qualityFor(degree, flip);
+  const voicing = modGate ? rawVoicing(modGate) : 1;
+  // The modifier thumb is the accidental in letters mode and the octave in
+  // scale mode. Letters needs a sharp far more than it needs a register.
+  const shift = modGate && modGate.thumb.on ? (isLetters() ? 1 : 12) : 0;
+  return { degree, quality, voicing, shift, flip,
+           key: [degree, quality, voicing, shift].join(":") };
+}
+
+function makeSettler(initial) {
+  const s = { value: initial, want: initial, since: null };
+  return {
+    read(next, now) {
+      if (next.key === s.value.key) { s.want = next; s.since = null; }   // already there
+      else if (next.key !== s.want.key) { s.want = next; s.since = now; } // new candidate
+      else if (s.since !== null && now - s.since >= Math.max(SETTLE_MIN_MS, cfg.settleMs)) {
+        s.value = next;                                                  // held long enough
+        s.since = null;
+      }
+      return s.value;
+    },
+    reset() { s.value = s.want = initial; s.since = null; },
+  };
+}
+
+const chordSettler = makeSettler(SILENCE);
+const settleChord = (chordGate, flip, modGate, now) =>
+  chordSettler.read(describe(chordGate, flip, modGate), now);
+const resetChord = () => chordSettler.reset();
+
+// True when the fingers up are a strict subset of some combo - which is to
+// say, the hand might still be on its way somewhere else.
+function reaching(gate) {
+  const up = FINGERS.filter(f => gate[f].on);
+  if (!up.length) return false;
+  return COMBOS.some(c => up.length < c.fingers.length && up.every(f => c.fingers.includes(f)));
+}
+
+/* Quality comes off a smoothed continuous tilt, so plain hysteresis is
+ * enough to stop it flapping at the boundary - no frame count needed. */
+/* Magnitude, not direction: tilt whichever way your wrist prefers. Wrists
+ * are not symmetric - away from the body is a much shorter throw than across
+ * it - and needing only one of the two directions halves what the gesture
+ * asks for. The threshold can be lower too, because there is no longer a
+ * wrong direction to overshoot into. */
+/* One angle, with the release derived from it rather than set beside it.
+ * A fixed release does not survive the entry angle moving: raise the angle
+ * you have to reach and a fixed exit stays put, so the gate gets stickier
+ * the harder you make it to enter - and a hand whose resting tilt happens to
+ * sit above the exit can never get back to major at all. Two thirds keeps
+ * the same feel at every setting. */
+const TILT_RELEASE = 0.65;
+const tiltRelease = () => cfg.tiltOn * TILT_RELEASE;
+let flipped = false;
+
+function updateQuality(roll) {
+  const mag = Math.abs(roll);
+  flipped = flipped ? mag > tiltRelease() : mag > cfg.tiltOn;
+  return flipped;
+}
 
 // Exponential smoothing on the continuous controls - raw landmark values
 // jitter enough to be audible as a warble.
@@ -345,8 +667,8 @@ function smoother(a) {
   let v = null;
   return x => (v = v === null ? x : v + (x - v) * a);
 }
-const smoothHeightR = smoother(0.25), smoothHeightL = smoother(0.25);
-const smoothRollR = smoother(0.30), smoothRollL = smoother(0.25);
+const smoothVolume = smoother(0.25), smoothEcho = smoother(0.25);
+const smoothFlip = smoother(0.25), smoothCut = smoother(0.25);
 
 // Angle of the palm away from vertical, in degrees. Tilt right is positive.
 function rollDegrees(lm) {
@@ -360,19 +682,25 @@ function rollDegrees(lm) {
 
 const clamp01 = x => Math.min(Math.max(x, 0), 1);
 
+/* Hand height, remapped to the band a hand actually goes to.
+ *
+ * Straight 0-to-1 across the frame puts full volume at the very top, which
+ * is a place you can reach but not hold - so playing loud meant playing with
+ * your arm up. The floor is where a hand rests between chords; cfg.reach is
+ * the height that should already be full. Everything above it is headroom
+ * nobody needs. */
+const HEIGHT_FLOOR = 0.02;
+const heightSpan = hs => clamp01((hs - HEIGHT_FLOOR) / Math.max(0.05, cfg.reach - HEIGHT_FLOOR));
+
+// Each degree gets its own hue, so the waveform colour alone tells you
+// where you are without reading the name.
+const degreeHue = d => (30 + (d - 1) * 51) % 360;
+
 /* ------------------------------------------------------------------ *
  * Panel
  * ------------------------------------------------------------------ */
 const $ = id => document.getElementById(id);
-const noteKeyEls = {}, modKeyEls = {};
-
-function degreeToMidi(degree, sharp, octUp, octDown) {
-  const steps = SCALES[cfg.scale];
-  const oct = Math.floor(degree / steps.length);
-  const semis = steps[degree % steps.length] + oct * 12;
-  return cfg.root + semis + (sharp ? 1 : 0) + (octUp ? 12 : 0) - (octDown ? 12 : 0);
-}
-const midiName = m => NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
+const noteKeyEls = {}, modKeyEls = {}, voiceKeyEls = {};
 
 function keyRow(who, what, cls) {
   const el = document.createElement("div");
@@ -384,20 +712,28 @@ function keyRow(who, what, cls) {
 function buildPanel() {
   $("noteKeys").innerHTML = "";
   $("modKeys").innerHTML = "";
+  $("voiceKeys").innerHTML = "";
 
-  noteKeyEls.fist = keyRow("R fist", midiName(degreeToMidi(FIST_DEGREE)), "key fist");
-  $("noteKeys").appendChild(noteKeyEls.fist);
-  for (const f of FINGERS) {
-    noteKeyEls[f] = keyRow("R " + f, midiName(degreeToMidi(NOTE_MAP[f])), "key");
-    $("noteKeys").appendChild(noteKeyEls[f]);
+  for (const row of DEGREE_ROWS) {
+    noteKeyEls[row.degree] = keyRow(row.label, chordName(row.degree, qualityFor(row.degree, false), 1), "key");
+    $("noteKeys").appendChild(noteKeyEls[row.degree]);
   }
 
-  modKeyEls.fist = keyRow("L fist", "Mute", "key kill fist");
-  $("modKeys").appendChild(modKeyEls.fist);
-  for (const f of FINGERS) {
-    modKeyEls[f] = keyRow("L " + f, MODS[f].label, "key mod");
-    $("modKeys").appendChild(modKeyEls[f]);
+  for (const row of QUALITY_ROWS) {
+    modKeyEls[row.id] = keyRow(row.label, row[cfg.mode], "key mod");
+    $("modKeys").appendChild(modKeyEls[row.id]);
   }
+
+  for (const row of VOICING_ROWS) {
+    voiceKeyEls[row.n] = keyRow(row.label, row.text, "key mod");
+    $("voiceKeys").appendChild(voiceKeyEls[row.n]);
+  }
+  voiceKeyEls.thumb = keyRow("+ thumb", isLetters() ? "Sharp +1" : "Octave +12", "key mod");
+  $("voiceKeys").appendChild(voiceKeyEls.thumb);
+
+  // Key and Scale have nothing to say about letters. Disabling them is
+  // cheaper than explaining why turning them does nothing.
+  $("rootSel").disabled = $("scaleSel").disabled = isLetters();
 }
 
 function fillSelect(el, items, initial) {
@@ -411,26 +747,36 @@ function fillSelect(el, items, initial) {
   }
 }
 
+fillSelect($("modeSel"), Object.values(MODES), MODES.letters);
 fillSelect($("rootSel"), Object.keys(ROOTS), "C");
 fillSelect($("scaleSel"), Object.keys(SCALES), "Major");
 fillSelect($("waveSel"), ["sawtooth", "square", "triangle", "sine"], "sawtooth");
-fillSelect($("bendSel"), ["1", "2", "5", "12"], "2");
+fillSelect($("octSel"), ["-2", "-1", "0", "+1", "+2"], "0");
 buildPanel();
 
+$("modeSel").onchange = e => {
+  cfg.mode = Object.keys(MODES).find(k => MODES[k] === e.target.value);
+  allNotesOff();
+  buildPanel();
+};
 $("rootSel").onchange = e => { cfg.root = ROOTS[e.target.value]; allNotesOff(); buildPanel(); };
 $("scaleSel").onchange = e => { cfg.scale = e.target.value; allNotesOff(); buildPanel(); };
+$("octSel").onchange = e => { cfg.octave = +e.target.value; allNotesOff(); buildPanel(); };
 $("waveSel").onchange = e => {
   cfg.wave = e.target.value;
-  for (const v of voices.values()) v.oscs.forEach(o => { o.type = cfg.wave; });
+  if (chord) for (const v of chord.notes) v.oscs.forEach(o => { o.type = cfg.wave; });
 };
-$("bendSel").onchange = e => { cfg.bendRange = +e.target.value; };
-$("fistChk").onchange = e => { cfg.fistNote = e.target.checked; if (!cfg.fistNote) noteOff("R:fist"); };
 $("volSlider").oninput = e => { cfg.volume = e.target.value / 100; if (master) master.gain.value = cfg.volume; };
+$("vibSlider").oninput = e => { cfg.vibrato = +e.target.value; if (vibDepth) vibDepth.gain.value = cfg.vibrato; };
+$("reachSlider").oninput = e => { cfg.reach = e.target.value / 100; };
+$("settleSlider").oninput = e => { cfg.settleMs = +e.target.value; };
+$("tiltSlider").oninput = e => { cfg.tiltOn = +e.target.value; };
 $("sensSlider").oninput = e => { cfg.sens = e.target.value / 100; };
+$("thumbSlider").oninput = e => { cfg.thumb = e.target.value / 100; };
 $("swapBtn").onclick = () => {
   cfg.swap = !cfg.swap;
   allNotesOff();
-  $("swapState").textContent = cfg.swap ? "swapped" : "";
+  $("swapState").textContent = cfg.swap ? "chord = left" : "chord = right";
 };
 
 function setStatus(msg, err) {
@@ -447,7 +793,61 @@ function setBar(name, frac, text) {
  * Tracking loop
  * ------------------------------------------------------------------ */
 const video = $("video"), canvas = $("overlay"), g2 = canvas.getContext("2d");
-let landmarker = null, lastVideoTime = -1;
+let landmarker = null, lastVideoTime = -1, paused = false, fps = null, lastFrameAt = 0;
+
+/* Pause has to be a real stop, not just a mute: it drops the chord, closes
+ * the swell, and forgets every gate. Coming back from a pause with the
+ * gates still holding your last pose would sound a chord you did not play. */
+function setPaused(on) {
+  if (!landmarker || on === paused) return;
+  paused = on;
+  $("pauseBtn").textContent = on ? "Resume" : "Pause";
+  if (!on) return;
+
+  chordOff();
+  swell.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+  delaySend.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+  resetGate(gates.chord);
+  resetGate(gates.mod);
+  resetChord();
+  flipped = false;
+  for (const row of DEGREE_ROWS) noteKeyEls[row.degree].classList.remove("lit");
+  for (const row of QUALITY_ROWS) modKeyEls[row.id].classList.remove("lit");
+  for (const row of VOICING_ROWS) voiceKeyEls[row.n].classList.remove("lit");
+  voiceKeyEls.thumb.classList.remove("lit");
+  setBar("swell", 0, "--");
+  setBar("tilt", 0, "--");
+  setBar("cut", 0.5, "--");
+  setBar("echo", 0, "--");
+  setBar("thumb", 0, "--");
+  setBar("fps", 0, "--");
+  setStatus("Paused.");
+}
+
+$("pauseBtn").onclick = () => setPaused(!paused);
+
+// Space is the obvious key, but it also activates whatever button has
+// focus - so take it before the browser does, and leave the panel's own
+// controls alone while someone is using them.
+addEventListener("keydown", e => {
+  if (e.code !== "Space" || e.repeat) return;
+  const t = e.target;
+  if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+  e.preventDefault();
+  if (t && t.blur) t.blur();
+  setPaused(!paused);
+});
+
+// Mirrored, so the picture behaves like a mirror. Landmark x is flipped to
+// match, and every calculation downstream uses the flipped values.
+function drawFrame() {
+  g2.save();
+  g2.setTransform(-1, 0, 0, 1, canvas.width, 0);
+  g2.drawImage(video, 0, 0, canvas.width, canvas.height);
+  g2.restore();
+  g2.fillStyle = "rgba(11,13,16,.35)";
+  g2.fillRect(0, 0, canvas.width, canvas.height);
+}
 
 const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
                [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
@@ -483,7 +883,8 @@ $("startBtn").onclick = async () => {
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
     $("gate").style.display = "none";
-    setStatus("Running. Show your right hand to play.");
+    $("pauseBtn").textContent = "Pause";
+    setStatus("Running. Hold up fingers on your right hand to play.");
     requestAnimationFrame(loop);
   } catch (err) {
     btn.disabled = false;
@@ -500,18 +901,25 @@ function loop() {
   if (video.currentTime === lastVideoTime) return;
   lastVideoTime = video.currentTime;
 
+  // One timestamp for the whole frame, so every gate and settler agrees on
+  // when "now" is even if the frame itself takes a while to process.
+  const now = performance.now();
+  fps = fps === null ? 30 : fps + (1000 / Math.max(1, now - lastFrameAt) - fps) * 0.1;
+  lastFrameAt = now;
+
+  // Keep showing the camera while paused - you want to see yourself get
+  // into position before the sound comes back - but skip the detection,
+  // which is the expensive half.
+  if (paused) {
+    drawFrame();
+    drawPaused();
+    return;
+  }
+
   const res = landmarker.detectForVideo(video, performance.now());
+  drawFrame();
 
-  // Draw mirrored so the picture behaves like a mirror. Landmark x is
-  // flipped to match, and every calculation below uses the flipped values.
-  g2.save();
-  g2.setTransform(-1, 0, 0, 1, canvas.width, 0);
-  g2.drawImage(video, 0, 0, canvas.width, canvas.height);
-  g2.restore();
-  g2.fillStyle = "rgba(11,13,16,.35)";
-  g2.fillRect(0, 0, canvas.width, canvas.height);
-
-  const hands = { Right: null, Left: null };
+  const hands = { chord: null, mod: null };
   const count = (res.landmarks && res.landmarks.length) || 0;
   for (let i = 0; i < count; i++) {
     const lm = res.landmarks[i].map(p => ({ x: 1 - p.x, y: p.y, z: p.z }));
@@ -519,113 +927,213 @@ function loop() {
     // flips which hand is which, so the label has to flip too.
     let side = res.handedness[i][0].categoryName === "Left" ? "Right" : "Left";
     if (cfg.swap) side = side === "Right" ? "Left" : "Right";
-    hands[side] = lm;
+    hands[side === "Right" ? "chord" : "mod"] = lm;
   }
 
-  let upR = null, upL = null;
-  if (hands.Right) upR = updateGate(gates.Right, extensionScores(hands.Right));
-  else resetGate(gates.Right);
-  if (hands.Left) upL = updateGate(gates.Left, extensionScores(hands.Left));
-  else resetGate(gates.Left);
+  let upChord = null, upMod = null, thumbScore = null, thumbWhich = "";
+  if (hands.chord) {
+    const s = extensionScores(hands.chord);
+    upChord = updateGate(gates.chord, s, now);
+    thumbScore = s.thumb;
+    thumbWhich = "chord";
+  } else resetGate(gates.chord);
+  if (hands.mod) {
+    const s = extensionScores(hands.mod);
+    upMod = updateGate(gates.mod, s, now);
+    // Show whichever thumb is closer to firing, so the meter is useful for
+    // tuning whichever one you happen to be testing.
+    if (thumbScore === null || s.thumb > thumbScore) { thumbScore = s.thumb; thumbWhich = "mod"; }
+  } else resetGate(gates.mod);
 
-  // Left hand absent means no modifiers at all - plain notes, no mute.
-  const muted   = !!(upL && upL.fist.on);
-  const sustain = !!(upL && upL.thumb.on);
-  const octUp   = !!(upL && upL.index.on);
-  const sharp   = !!(upL && upL.middle.on);
-  const octDown = !!(upL && upL.ring.on);
-  const vibrato = !!(upL && upL.pinky.on);
+  setBar("fps", fps / 60, Math.round(fps) + " fps · settle " +
+         cfg.settleMs + "ms = " + (cfg.settleMs / 1000 * fps).toFixed(1) + " frames");
 
-  // Continuous controls are read before any note starts, so a note played
-  // mid-bend opens already in tune with the ones around it.
-  let bendCents = 0;
+  const thumbAt = thumbThreshold();
+  if (thumbScore === null) setBar("thumb", 0, "--");
+  else setBar("thumb", thumbScore / (thumbAt * 2),
+              thumbScore.toFixed(2) + " / " + thumbAt.toFixed(2) + "  " + thumbWhich);
 
-  if (hands.Right) {
-    const hs = smoothHeightR(1 - clamp01(hands.Right[WRIST].y));   // 0 low, 1 high
-    const cutHz = 220 * Math.pow(38, hs);                           // ~220Hz to ~8.3kHz, log
-    const roll = smoothRollR(rollDegrees(hands.Right));
-    bendCents = Math.max(-1, Math.min(1, roll / 55)) * cfg.bendRange * 100;
-    filter.frequency.setTargetAtTime(cutHz, ctx.currentTime, 0.03);
-    applyBend(bendCents);
-    setBar("cutoff", hs, Math.round(cutHz) + " Hz");
-    setBar("bend", (bendCents / (cfg.bendRange * 100) + 1) / 2,
-           (bendCents >= 0 ? "+" : "") + (bendCents / 100).toFixed(2) + " st");
+  // --- the chord hand: count, tilt and height -------------------------
+  // Everything that decides what the chord is lives here. No hand means no
+  // chord at all, which is the rest.
+  let flip = false, tilt = 0, level = 0;
+
+  if (hands.chord) {
+    tilt = smoothFlip(rollDegrees(hands.chord));
+    flip = updateQuality(tilt);
+    // Show the angle you have to beat as well as the one you are at - which
+    // of the two applies depends on which side of the gate you are already on.
+    setBar("tilt", Math.min(1, Math.abs(tilt) / 45),
+           Math.round(Math.abs(tilt)) + "° / " +
+           Math.round(flip ? tiltRelease() : cfg.tiltOn) + "°  " + (flip ? "minor" : "major"));
+
+    // The theremin part: height is loudness. Squared, because a linear gain
+    // reads as most of the travel doing nothing and then a jump at the top.
+    const hs = smoothVolume(1 - clamp01(hands.chord[WRIST].y));   // 0 low, 1 high
+    // Still curved, because gain linear in position reads as most of the
+    // travel doing nothing and then a jump - but gently, since the band
+    // remap above has already done the heavy lifting.
+    level = Math.pow(heightSpan(hs), 1.2);
+    swell.gain.setTargetAtTime(level, ctx.currentTime, 0.04);
+
+    // The raw height goes on the meter too. Where a hand actually sits in
+    // frame is the one number none of this can be tuned without.
+    setBar("swell", level, Math.round(level * 100) + "%  h " + hs.toFixed(2));
   } else {
-    setBar("cutoff", 0, "--");
-    setBar("bend", 0.5, "--");
+    flipped = false;
+    swell.gain.setTargetAtTime(0, ctx.currentTime, 0.08);
+    setBar("tilt", 0, "--");
+    setBar("swell", 0, "--");
   }
 
-  if (hands.Left) {
-    const echo = smoothHeightL(1 - clamp01(hands.Left[WRIST].y));
-    delaySend.gain.setTargetAtTime(muted ? 0 : echo * 0.6, ctx.currentTime, 0.05);
+  // --- the modifier hand: filter and echo ------------------------------
+  // Its fingers feed the chord description below rather than acting here, so
+  // that a voicing change and a chord change settle as one gesture.
+  if (hands.mod) {
+    /* Filter is signed, unlike the quality flip: it is continuous, so there
+     * is no threshold to reach and therefore no wrong way to overshoot.
+     * Described on screen rather than relative to the body, because Swap
+     * hands moves this hand to the other side and "inward" would flip. */
+    const roll = smoothCut(rollDegrees(hands.mod));
+    const cutHz = 2000 * Math.pow(4, Math.max(-1, Math.min(1, roll / 50)));
+    filter.frequency.setTargetAtTime(cutHz, ctx.currentTime, 0.04);
+    setBar("cut", (Math.max(-1, Math.min(1, roll / 50)) + 1) / 2, Math.round(cutHz) + " Hz");
+
+    const echo = smoothEcho(1 - clamp01(hands.mod[WRIST].y));
+    delaySend.gain.setTargetAtTime(echo * 0.6, ctx.currentTime, 0.05);
     setBar("echo", echo, Math.round(echo * 100) + "%");
-
-    const rollL = smoothRollL(rollDegrees(hands.Left));
-    const q = 1 + clamp01((rollL + 55) / 110) * 17;                 // Q 1 to 18
-    filter.Q.setTargetAtTime(q, ctx.currentTime, 0.05);
-    setBar("res", (q - 1) / 17, q.toFixed(1));
-
-    vibDepth.gain.setTargetAtTime(vibrato ? 35 : 0, ctx.currentTime, 0.08);
   } else {
+    filter.frequency.setTargetAtTime(2000, ctx.currentTime, 0.1);
     delaySend.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
-    filter.Q.setTargetAtTime(3, ctx.currentTime, 0.1);
-    vibDepth.gain.setTargetAtTime(0, ctx.currentTime, 0.08);
+    setBar("cut", 0.5, "--");
     setBar("echo", 0, "--");
-    setBar("res", 0, "--");
   }
 
-  // --- note on / off ------------------------------------------------
-  // No right hand, or a left fist, means nothing should be sounding. That
-  // is the rest: the instrument is silent by default, not droning.
-  const wanted = new Set();
-  if (upR && !muted) {
-    for (const f of FINGERS) if (upR[f].on) wanted.add("R:" + f);
-    if (cfg.fistNote && upR.fist.on) wanted.add("R:fist");
+  // --- chord on / off -------------------------------------------------
+  // Zero fingers is silence, and so is no chord hand at all. A hand leaving
+  // frame is unambiguous, so that one skips the settle and stops now.
+  if (!hands.chord) resetChord();
+  const held = hands.chord ? settleChord(upChord, flip, upMod, now) : SILENCE;
+  const { degree, quality: q, voicing, shift } = held;
+
+  if (degree > 0) {
+    chordTo([cfg.mode, held.key, cfg.root, cfg.scale, cfg.octave].join(":"),
+            chordMidis(degree, q, voicing, shift),
+            upChord && reaching(upChord) ? SOFT_ATTACK : ATTACK);
+  } else {
+    chordOff();
   }
 
-  for (const slot of wanted) {
-    if (voices.has(slot)) continue;
-    const finger = slot.slice(2);
-    const degree = finger === "fist" ? FIST_DEGREE : NOTE_MAP[finger];
-    noteOn(slot, degreeToMidi(degree, sharp, octUp, octDown), bendCents);
-  }
-  // Sustain holds dropped fingers, but never survives a mute or a hand
-  // leaving frame - otherwise a stuck note has no way to be stopped.
-  if (!sustain || muted || !hands.Right) {
-    for (const slot of Array.from(voices.keys())) if (!wanted.has(slot)) noteOff(slot);
-  }
+  // --- drawing and panel ----------------------------------------------
+  drawScope(degree);
+  if (hands.chord) drawHand(hands.chord, upChord, "chord");
+  if (hands.mod) drawHand(hands.mod, upMod, "mod");
+  drawReadout(degree, q, flip, voicing, shift);
 
-  // --- drawing and panel --------------------------------------------
-  if (hands.Right) drawHand(hands.Right, upR, "R");
-  if (hands.Left) drawHand(hands.Left, upL, "L");
-
-  noteKeyEls.fist.classList.toggle("lit", !!(upR && upR.fist.on && cfg.fistNote && !muted));
-  modKeyEls.fist.classList.toggle("lit", muted);
-  for (const f of FINGERS) {
-    noteKeyEls[f].classList.toggle("lit", !!(upR && upR[f].on && !muted));
-    modKeyEls[f].classList.toggle("lit", !!(upL && upL[f].on && !muted));
-  }
-
-  const label = (el, degree) => {
-    const want = midiName(degreeToMidi(degree, sharp, octUp, octDown));
-    const node = el.querySelector(".what");
+  for (const row of DEGREE_ROWS) {
+    noteKeyEls[row.degree].classList.toggle("lit", row.degree === degree);
+    const want = chordName(row.degree, qualityFor(row.degree, held.flip), voicing, shift);
+    const node = noteKeyEls[row.degree].querySelector(".what");
     if (node.textContent !== want) node.textContent = want;
-  };
-  label(noteKeyEls.fist, FIST_DEGREE);
-  for (const f of FINGERS) label(noteKeyEls[f], NOTE_MAP[f]);
+  }
+  for (const row of QUALITY_ROWS) {
+    modKeyEls[row.id].classList.toggle("lit", row.id === (held.flip ? "flipped" : "keyed") && !!hands.chord);
+  }
+  for (const row of VOICING_ROWS) {
+    voiceKeyEls[row.n].classList.toggle("lit", row.n === voicing && !!hands.mod);
+  }
+  voiceKeyEls.thumb.classList.toggle("lit", !!shift);
 
-  if (muted) setStatus("Muted - left fist closed.");
-  else if (!hands.Right) setStatus("Resting. Raise your right hand to play.");
-  else setStatus("Playing. " + voices.size + (voices.size === 1 ? " voice" : " voices") +
-                 " sounding." + (sustain ? "  [sustain]" : "") + (vibrato ? "  [vibrato]" : ""));
+  if (!hands.chord) setStatus("Resting. Raise your chord hand to play.");
+  else if (!degree) setStatus("Silent - no fingers up.");
+  else setStatus("Playing " + chordName(degree, q, voicing, shift) +
+                 (romanName(degree, q) ? " (" + romanName(degree, q) + ")" : "") +
+                 " at " + Math.round(level * 100) + "%" +
+                 (flip ? "  [flipped]" : "") +
+                 (shift === 1 ? "  [sharp]" : shift === 12 ? "  [+8ve]" : ""));
+}
+
+/* The waveform is the thing that reads on a recording - it makes the sound
+ * visible without anyone having to know what a filter is. Three offset
+ * traces rather than one, because a single hairline disappears against a
+ * busy background. */
+function drawScope(degree) {
+  if (!analyser) return;
+  analyser.getByteTimeDomainData(scope);
+
+  const W = canvas.width, H = canvas.height;
+  const baseline = H * 0.87;
+  const amp = H * 0.20;
+  const hue = degree ? degreeHue(degree) : 210;
+  const sat = degree ? 90 : 12;
+  const step = Math.max(1, Math.floor(scope.length / W));
+
+  for (const [dy, alpha, width] of [[-5, 0.30, 2], [0, 0.85, 2.5], [5, 0.30, 2]]) {
+    g2.beginPath();
+    for (let i = 0, x = 0; i < scope.length; i += step, x += W / (scope.length / step)) {
+      const y = baseline + dy + (scope[i] - 128) / 128 * amp;
+      if (i === 0) g2.moveTo(x, y); else g2.lineTo(x, y);
+    }
+    g2.strokeStyle = `hsla(${hue}, ${sat}%, 62%, ${alpha})`;
+    g2.lineWidth = width;
+    g2.stroke();
+  }
+}
+
+/* The big centre-bottom name. Chord symbol and roman numeral together,
+ * because the symbol says what you are hearing and the numeral says where
+ * you are in the key - and which one you want depends on who is watching. */
+function drawReadout(degree, q, flip, voicing, shift) {
+  const W = canvas.width, H = canvas.height;
+  g2.textAlign = "center";
+
+  if (!degree) {
+    g2.fillStyle = "rgba(230,237,243,.28)";
+    g2.font = "600 " + Math.round(H * 0.030) + "px ui-monospace, monospace";
+    g2.fillText("—", W / 2, H * 0.885);
+    return;
+  }
+
+  const hue = degreeHue(degree);
+  const roman = romanName(degree, q);
+  const main = chordName(degree, q, voicing, shift) + (roman ? " (" + roman + ")" : "");
+  const oct = cfg.octave + (shift === 12 ? 1 : 0);
+  const sub = QUALITY_TEXT[q] +
+              (isLetters() ? "" : flip ? " · flipped" : " · in key") +
+              " · " + VOICING_TEXT[voicing] +
+              (oct ? "  " + (oct > 0 ? "+" : "") + oct + "8ve" : "");
+
+  g2.save();
+  g2.shadowColor = "rgba(0,0,0,.85)";
+  g2.shadowBlur = 14;
+  g2.fillStyle = `hsl(${hue}, 85%, 66%)`;
+  g2.font = "700 " + Math.round(H * 0.058) + "px ui-monospace, monospace";
+  g2.fillText(main, W / 2, H * 0.885);
+
+  g2.fillStyle = "rgba(230,237,243,.72)";
+  g2.font = "600 " + Math.round(H * 0.021) + "px ui-monospace, monospace";
+  g2.fillText(sub, W / 2, H * 0.925);
+  g2.restore();
+}
+
+function drawPaused() {
+  const W = canvas.width, H = canvas.height;
+  g2.fillStyle = "rgba(11,13,16,.45)";
+  g2.fillRect(0, 0, W, H);
+  g2.textAlign = "center";
+  g2.fillStyle = "rgba(230,237,243,.92)";
+  g2.font = "700 " + Math.round(H * 0.058) + "px ui-monospace, monospace";
+  g2.fillText("PAUSED", W / 2, H * 0.5);
+  g2.fillStyle = "rgba(230,237,243,.5)";
+  g2.font = "600 " + Math.round(H * 0.021) + "px ui-monospace, monospace";
+  g2.fillText("space to resume", W / 2, H * 0.55);
 }
 
 function drawHand(lm, gate, tag) {
   const W = canvas.width, H = canvas.height;
-  const fist = gate && gate.fist.on;
 
   g2.lineWidth = 3;
-  g2.strokeStyle = tag === "R" ? "rgba(122,162,247,.55)" : "rgba(255,180,84,.55)";
+  g2.strokeStyle = tag === "chord" ? "rgba(122,162,247,.55)" : "rgba(255,180,84,.55)";
   g2.beginPath();
   for (const bone of BONES) {
     g2.moveTo(lm[bone[0]].x * W, lm[bone[0]].y * H);
@@ -633,28 +1141,18 @@ function drawHand(lm, gate, tag) {
   }
   g2.stroke();
 
-  // A closed fist is a note (right) or the mute (left), so ring the palm
-  // rather than leaving the hand looking like it is doing nothing.
-  if (fist) {
-    g2.beginPath();
-    g2.arc(lm[MID_MCP].x * W, lm[MID_MCP].y * H, dist(lm[WRIST], lm[MID_MCP]) * W * 1.1, 0, Math.PI * 2);
-    g2.lineWidth = 5;
-    g2.strokeStyle = tag === "R" ? "#3ddc84" : "#ff6b6b";
-    g2.stroke();
-  }
-
   for (const f of FINGERS) {
     const on = gate && gate[f].on;
     g2.beginPath();
     g2.arc(lm[TIP[f]].x * W, lm[TIP[f]].y * H, on ? 13 : 7, 0, Math.PI * 2);
-    g2.fillStyle = on ? (tag === "R" ? "#3ddc84" : "#ffb454") : "rgba(230,237,243,.30)";
+    g2.fillStyle = on ? (tag === "chord" ? "#3ddc84" : "#ffb454") : "rgba(230,237,243,.30)";
     g2.fill();
   }
 
   g2.fillStyle = "rgba(230,237,243,.75)";
   g2.font = "600 20px ui-monospace, monospace";
   g2.textAlign = "center";
-  g2.fillText(tag === "R" ? "NOTES" : "CONTROL", lm[WRIST].x * W, lm[WRIST].y * H + 34);
+  g2.fillText(tag === "chord" ? "CHORD" : "MODIFY", lm[WRIST].x * W, lm[WRIST].y * H + 34);
 }
 </script>
 </body>

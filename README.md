@@ -1,8 +1,8 @@
 # Hand Synth
 
 A synthesiser you play by waving at your webcam. MediaPipe finds 21 landmarks
-on each hand, the code decides which fingers are up, and Web Audio turns that
-into notes. One HTML file, no build step, no dependencies.
+on each hand, the code counts which fingers are up, and Web Audio turns that
+into chords. One HTML file, no build step, no dependencies.
 
 Prototype. The point is to find out which gestures feel like an instrument and
 which feel like fighting a computer, so the mapping is meant to be argued with.
@@ -24,88 +24,246 @@ library that solves both by being localhost.
 
 ## Playing it
 
-**Right hand picks the notes. Left hand changes what those notes mean.** The
-note hand never has to move, which leaves its height and tilt free to be
-expressive instead of competing with note choice.
+**One hand owns the chord. The other only modifies it.** The chord hand decides
+which chord you hear — the degree from its finger count, major or minor from
+its tilt, how loud from its height. The modifier hand cannot reach a chord the
+first hand is not already playing; it restacks, transposes and colours what it
+is given.
 
-### Right hand — notes
+By default the chord hand is your **right**. **Swap hands** trades them.
 
-| Gesture | Note |
-|---|---|
-| Closed fist | Degree 1 (the root) |
-| Thumb | Degree 2 |
-| Index | Degree 3 |
-| Middle | Degree 4 |
-| Ring | Degree 5 |
-| Pinky | Degree 6 |
+### Chord hand — which chord
 
-Polyphonic — raise three fingers and you get a three-note chord. The fist
-counts as a note only when no fingers are up, which is what buys six degrees
-out of five fingers.
+How many fingers are up picks the chord. Which fingers they are does not
+matter, with two named exceptions.
+
+| Fingers up | Scale mode | Letters mode |
+|---|---|---|
+| 0 | Silence | Silence |
+| 1 | I | A |
+| 2 | II | B |
+| 3 | III | C |
+| 4 | IV | D |
+| 5 | V | E |
+| index + pinky | VI | F |
+| index + pinky + thumb | VII | G |
+
+One chord at a time. Changing it moves the chord rather than stacking another
+on top of it.
+
+**Letters mode is the default.** **Scale mode** locks you to a key. The seven positions are its seven degrees,
+so you cannot play a wrong note — and cannot leave the key either.
+
+**Letters mode** drops the key. The positions are the seven natural roots, and
+the modifier hand's thumb sharpens them. That matters more than it sounds:
+sharping the naturals gives A♯ C♯ D♯ F♯ G♯ — exactly the five black keys, since
+B♯ and E♯ are just C and F — so seven positions plus one toggle reach **all
+twelve roots**, and flats come free enharmonically (B♭ = A♯, E♭ = D♯). Twelve
+roots by two qualities is every common triad, so any song is playable.
+
+Without that sharp toggle the mode would be a trap: A–G major and minor covers
+C and G, but the key of D needs F♯m, A needs C♯m, F needs B♭. Naturals alone
+reach 7 of 12 roots. There is a test that asserts the sharp closes the gap.
+
+Key and Scale are disabled in letters mode, since neither has anything to say.
+
+### Chord hand — what kind, and how loud
+
+| Tilt | Scale mode | Letters mode |
+|---|---|---|
+| Flat | The chord that belongs to the key | Major |
+| Tilt either way | The other one | Minor |
+
+Flipping swaps major and minor; the diminished vii becomes major. In C that
+gives you C·Cm, Dm·D, Em·E, F·Fm, G·Gm, Am·A, B°·B — a pair on every degree.
+
+Direction does not matter, so tilt whichever way your wrist prefers. You enter
+minor past 25° and return to major under about 16°; the **Rotation** slider
+moves both together. The **Tilt** meter shows your live angle beside whichever
+of the two currently applies, so you can see where your own neutral sits.
 
 | Movement | Effect |
 |---|---|
-| Height | Brightness (filter cutoff, ~220 Hz to ~8 kHz) |
-| Tilt | Pitch bend, ±1 to ±12 semitones |
+| Height | Volume |
 
-Bend is applied to the running oscillators, so a held note slides rather than
-retriggers.
+Height is the theremin part: raise the hand to swell in, lower it to fade out.
 
-### Left hand — control
+### Modifier hand — optional
+
+Its **four fingers** count the voicing. The thumb is deliberately not part of
+that count, which leaves it free to be the octave.
+
+| Fingers up | Voicing |
+|---|---|
+| 0 or 1 | Root position |
+| 2 | 1st inversion |
+| 3 | Seventh — maj7 on a major chord, m7 on a minor one |
+| 4 | Dominant 7th on a major chord, diminished 7th on a minor one |
 
 | Gesture | Effect |
 |---|---|
-| Closed fist | Mute everything |
-| Thumb | Sustain — held notes stay after the finger drops |
-| Index | Octave up |
-| Middle | Sharp (+1 semitone) |
-| Ring | Octave down |
-| Pinky | Vibrato |
-
-| Movement | Effect |
-|---|---|
+| Thumb | Octave up in scale mode, **sharp** in letters mode |
+| Tilt | Filter — tilt left darkens, tilt right brightens (~500 Hz to ~8 kHz) |
 | Height | Echo send |
-| Tilt | Filter resonance — flat is smooth, tilted is squelchy |
 
-**With the left hand out of frame you get plain notes and no modifiers.** That
-is deliberate: one hand alone should be playable.
+**Leave this hand out of frame and you get plain triads and nothing else
+changes.** Every chord is reachable from the chord hand alone, which is the
+point of putting the whole harmony on one hand.
 
-### Resting
+### Resting and pausing
 
-A fist is a note, so a closed hand drones — which is the point if you want to
-hold a root and shape it with the left hand. To stop, take the right hand out
-of frame. Rest is a position, not a gesture.
-
-If the drone gets in the way, untick **Fist = root** and a closed hand goes
-silent instead. Both behaviours are one click apart on purpose; which one feels
-right is exactly what this prototype is for.
+Close your chord hand, take it out of frame, or lower it — all three are
+silence. **Space** (or the Pause button) is a real stop: it drops the chord,
+closes the swell, and forgets every gate, so coming back does not sound the
+pose you happened to be holding.
 
 ## Why it is built the way it is
+
+- **One hand owns the harmony.** Splitting "which chord" and "what kind" across
+  two hands means neither hand is playable alone and every chord change is a
+  two-hand coordination problem. Putting the degree and the quality on the same
+  hand costs that hand a tilt — but what it was doing with that tilt was a
+  modifier, and modifiers are what the other hand is for.
+
+- **The modifier hand counts on four fingers, not five.** Its thumb carries the
+  octave, and a finger cannot be both a digit in a count and a separate toggle
+  without the two fighting over the same knuckle. Four is also exactly how many
+  voicings there are, so nothing is lost.
+
+- **The whole chord settles as one thing, not each part separately.** This
+  replaced an earlier design with a settler per hand, and that design was
+  wrong. A chord here is a position, a quality, a voicing and a shift, and
+  almost no change moves all four on the same frame — going from three fingers
+  to one-finger-minor drops two fingers *and* rotates the wrist. Settled
+  separately, whichever lands first commits on its own, so you hear the
+  one-finger major on the way to the minor. No amount of debouncing the count
+  fixes that, because the count was never wrong. Waiting until the whole
+  description has stopped moving is what turns a gesture back into one change.
+  There are tests for the wrist leading, the wrist lagging, and a voicing
+  moving at the same time.
+
+- **Voicings come from a table of named chords, not from stacking scale
+  degrees.** A seventh built by indexing four steps up an exotic scale is not
+  reliably a seventh. Looking up "minor 7th" and transposing it always is.
+
+- **The degree is the finger *count*, not which finger.** A gesture-per-chord
+  layout means memorising a chart before you can play a progression. A count is
+  something you already know.
+
+- **Two named finger sets buy the last two degrees.** Five fingers only counts
+  to five and a key has seven. `index+pinky` and `index+pinky+thumb` are tested
+  before the count, because as counts they would read as II and III.
+
+- **The count is debounced separately from the fingers.** Fingers do not all
+  arrive on the same frame, so going from two to four reads as three on the way
+  through — and when the count *is* the chord, that three is audibly wrong.
+  Debouncing each finger does not help, because each finger is behaving
+  correctly; the degree they add up to is what has to settle.
+
+- **Every wait is measured in milliseconds, not frames.** The loop runs once
+  per camera frame, so a frame count is a different amount of time on every
+  webcam — 7 frames is 230ms at 30fps and 117ms at 60fps. A finger transition
+  takes however long it takes regardless, so a debounce fast enough on one
+  machine let chords through on another. There is a test that replays the same
+  gesture at 15, 24, 30, 60 and 90fps and asserts all five hear the same thing.
+
+- **How long to settle is a setting, because it is a question about you.**
+  What has to be waited out is the gap between your first finger arriving and
+  your last, and that is a fact about hands, not about code. The default is
+  260ms; the **Settle** slider runs 60 to 600. It is a straight trade — the
+  cost is paid on every change, including the ones you meant. The **Camera**
+  readout shows your actual frame rate and what the settle works out to in
+  frames on your machine.
+
+- **Poses that might still be turning into a combo get a slow attack.**
+  Reaching for `index+pinky` passes through index alone, which settles and
+  sounds the I before the pinky arrives. Rather than make every chord wait
+  longer for the sake of two of them, index-alone swells in over ~190ms: a
+  chord you did not mean is replaced before it has finished arriving, and one
+  you did mean reads as intent rather than lag.
+
+- **Chords are built from canonical triads, not from the raw stack.** The key
+  decides major/minor/diminished by stacking thirds, but the notes that sound
+  are always a real triad. The pentatonic and blues scales stack into shapes
+  that are not chords at all, and this is what stops that being audible.
+
+- **Two stops on the tilt, not three.** Naming absolute qualities — left for
+  minor, flat for the key, right for major — sounds like three choices but is
+  really two and a half: on the I, "major" is what the key already said, and on
+  the ii it is "minor" that changes nothing. Which stop is dead moves with the
+  chord, which is worse than either. A flip always changes something, so the
+  control is never inert.
+
+- **The flip reads tilt magnitude, not direction.** Wrists are not symmetric —
+  rotating away from the body is a much shorter throw than across it — so
+  needing only one of the two directions roughly halves what the gesture asks
+  for. It also lets the threshold come down, because there is no longer a wrong
+  direction to overshoot into.
+
+- **Quality uses hysteresis, not a frame count.** The tilt is already smoothed,
+  so two angles are enough to stop it flapping at the boundary.
+
+- **The exit angle is derived from the entry angle, not set beside it.** A
+  fixed exit does not survive the entry moving — raise the angle you have to
+  reach and the gate gets stickier, because the exit stayed where it was. Worse,
+  a hand whose resting tilt happens to sit above a low exit can never get back
+  to major at all: the flip becomes one-way. The exit is two thirds of the
+  entry, so the feel is the same at every setting, and there is a test that a
+  hand resting at 14° can still return.
 
 - **Finger detection is measured from the wrist and scaled by hand size**, not
   by asking whether a fingertip is above a knuckle. The naive version breaks
   the moment you rotate your hand — which this instrument asks you to do
-  constantly, because tilt is the bend control.
+  constantly, because tilt is two of the controls.
 
 - **The thumb needs its own test.** It folds across the palm rather than back
   toward the wrist, so wrist distance barely changes when it closes. It is
   measured against the pinky knuckle instead.
 
-- **Every gate is a Schmitt trigger with a frame count.** A finger sitting on
-  the threshold flickers, and a flickering finger machine-guns its note. Two
-  thresholds plus a two-frame hold is the whole difference between an
-  instrument and a noise. The fist waits five frames, because moving between
-  two notes passes through "all fingers down" and would otherwise blip the root
-  in between.
+- **And its own threshold.** That measurement covers a much smaller range than
+  the fingers do, so one number for both meant a thumb you had to stick right
+  out to register. Sliding both on a single control cannot fix it either:
+  loosening the thumb enough to fire drops the fingers below where they start
+  to chatter. It has its own **Thumb** slider now, and its hysteresis gap is
+  proportional — a fixed gap would put the release below zero at the loose end,
+  leaving a gate that could only let go of an actively folded thumb.
 
-- **Continuous controls are smoothed.** Raw landmark positions jitter enough to
-  be audible as a warble on the filter.
+- **The thumb default is deliberately strict.** It was dropped from 0.12 to
+  0.07 to make it easier to fire, and that turned out to be worse: a thumb
+  that fires when you did not mean it is a sharpened chord in letters mode,
+  which is far more audible than a missed one. It sits at 0.11 now, with the
+  slider spanning 0.16 to 0.06 — the cost of a false positive is higher than
+  the cost of a false negative, so the default leans strict.
 
-- **Vibrato is one shared LFO** wired into every voice's detune, so a chord
-  wobbles together instead of each note drifting on its own.
+- **Height is remapped to the band a hand actually goes to.** Straight 0-to-1
+  across the frame put full volume at the very top — a place you can reach but
+  not hold, so playing loud meant playing with your arm up. Worse, the squared
+  curve on top of it meant a wrist near the top of frame was still only at 64%.
+  The band runs from a resting floor to the **Reach** setting, and everything
+  above that is headroom nobody needs. Reach defaults to 30% — full volume with
+  the wrist about seventy percent of the way down the frame, which is where a
+  hand actually sits when your elbow is on a desk. The slider goes down to 15%.
 
-- **Sustain never survives a mute or a hand leaving frame.** A stuck note with
-  no way to stop it is worse than no sustain at all.
+- **The Volume meter shows the raw hand height next to the level.** Every
+  attempt to tune this by feel was really a disagreement about where a hand
+  sits in frame, which is a number, and now it is on screen. If the reading is
+  0.15 when your arm is comfortable, set Reach near 15.
+
+- **The curve is gentle, not gone.** Gain linear in position reads as most of
+  the travel doing nothing and then a jump at the top, so height is still
+  raised to 1.4 — but the band remap does the heavy lifting now, not the
+  exponent.
+
+- **The echo is fed post-swell.** Dropping your hand stops feeding the delay but
+  lets what is already in it ring out, so you can swell in, cut, and let the
+  tail answer.
+
+- **Resonance is fixed and modest.** It used to be on the left tilt, but a
+  three-note chord through a resonant filter turns to mud.
+
+- **The waveform and the big chord name are load-bearing, not decoration.**
+  They are what makes the instrument legible on a recording — you can see what
+  a hand position did without knowing anything about the mapping.
 
 ## Known rough edges
 
@@ -114,20 +272,73 @@ right is exactly what this prototype is for.
   code. If your hands are the wrong way round, hit **Swap hands**.
 
 - **Tracking wants light.** Backlit hands, or hands against a busy background,
-  drop out. The status line says how many hands it can see.
+  drop out. The status line and the big readout say what it thinks you played.
+
+- **Reaching for the VI still makes a sound.** The slow attack makes the
+  passed-through I quiet rather than absent. Getting to actual silence would
+  mean waiting long enough to be sure the hand had stopped moving, which costs
+  every other chord.
+
+- **Triads only.** No inversions, no sevenths. The reference this borrows from
+  puts those on a second counting hand; that would mean both hands counting at
+  once, which is the thing this layout is trying to avoid.
+
+- **Pitch bend is gone.** The modifier hand's tilt is the filter now, which is
+  what the reference does with it, and there was nowhere else to put a bend
+  that would not collide with the quality flip. Sustain and sharp went earlier.
+
+- **The octave gesture only goes up.** The reference reads a thumb position as
+  both directions; a binary finger gate gives one. Thumb out is +12, and the
+  Octave dropdown sets the register you start from.
+
+- **Scale mode locks you to one key at a time.** The seven degrees are the
+  seven notes of whatever Key and Scale say, so that mode is fourteen chords
+  and changing key means reaching for a dropdown. That is what makes it hard
+  to play a wrong note, and it is also the ceiling. Letters mode lifts the
+  ceiling and removes the protection with it — nothing stops you playing a
+  chord that does not belong.
+
+- **Letters mode has no octave gesture.** The modifier thumb is the sharp
+  there, and a binary gate cannot be two things at once. Use the Octave
+  dropdown.
+
+- **Letters mode spells everything with sharps.** B♭ shows as A♯ and E♭ as
+  D♯. They are the same chord; the name will look wrong on a lead sheet.
+
+- **Pentatonic and blues are not really seven-degree scales.** They are stored
+  padded out to seven entries, so some degrees repeat an earlier one an octave
+  up rather than being new chords: on both pentatonics that is degrees 6 and 7,
+  on blues just degree 7. Fine for the five-finger counts, misleading for the
+  combos.
+
+- **You cannot ask for a specific quality, only for the other one.** Playing a
+  minor iii means knowing the key already gave you one, so you leave the hand
+  flat. That is the trade for a control that always does something.
+
+- **Changing two things at once costs no more than changing one.** The settle
+  starts again each time any part of the description changes, so a sprawling
+  two-handed change waits from the last thing to move, not from the first.
+  That is the point, but it does mean a hand that never quite settles never
+  commits.
 
 - **The webcam sets the ceiling on responsiveness.** At 30fps a frame is 33ms,
-  so a note can be up to that late before Web Audio is even involved. It is
-  fine for pads and lines; it is not a drum trigger.
+  and the settle adds 260ms on top by default, so a chord lands about a third
+  of a second after you ask for it. Fine for pads and progressions; not a drum
+  trigger. Drop **Settle** if you want it tighter and can move your fingers
+  together.
 
-- **Modifiers apply at note-on.** Adding a sharp while a note is already
-  sounding does not retune it. Predictable beat expressive, for now — bend is
-  the control that moves live notes.
+- **Thumb and pinky are the least reliable fingers to count on.** Three fingers
+  as index-middle-ring tracks better than thumb-index-pinky, even though both
+  are "three".
+
+- **Inversions stop at the first.** The reference has the same limit. Second
+  inversion would be a fifth voicing and the modifier hand has run out of
+  fingers to count with.
 
 ## Ideas not built yet
 
-- Scale quantised bend, so tilt slides between scale degrees rather than
-  through the cracks
+- A key change on some gesture, so the single-key ceiling stops being a
+  dropdown reach
 - Pinch distance (thumb to index) as a continuous control — finer than height
 - Hand distance from camera (z) as a third axis
 - MIDI out, so the tracking drives a real instrument instead of this one
