@@ -121,6 +121,36 @@ that count, which leaves it free to be the octave.
 changes.** Every chord is reachable from the chord hand alone, which is the
 point of putting the whole harmony on one hand.
 
+### Techno voice
+
+The **Voice** setting swaps the pad for a sequencer. The hands mean the same
+things; what happens to the chord changes completely.
+
+| Part | What it does |
+|---|---|
+| Arp | Plays the chord one note at a time instead of holding it, at 1/8, 1/16 or 1/32, up or up-down |
+| Gate | Chops whatever is sounding in time with the beat — a trance gate |
+| Sub | A triangle an octave under the root, brought in by the modifier thumb |
+| Dirt | Four transfer curves, off by default: Warm, Crush, Fold, Bits |
+| Drive | How hard the chosen curve is pushed |
+
+The arpeggio runs over the chord *plus itself an octave up*, so a triad is a
+six-step run and a seventh is eight — long enough to sound like a sequence
+without adding a note that is not in the chord. Voicing still picks which
+notes those are, so the modifier hand chooses the shape of the run.
+
+**In techno the modifier thumb brings in the sub** rather than transposing.
+That is the one collision in the whole layout: in letters mode the thumb is
+the sharp, so letters and techno together lose access to accidental roots. One
+binary gate cannot be two things, and techno tends to stay in one key, so
+Scale mode is the natural pairing.
+
+Tempo, arp rate, gate rate and depth, drive and sub level are all panel
+settings — the hands were full already, and adding gestures is how the first
+version of this instrument became unplayable.
+
+The video glitch fires on the beat in this mode, so the picture keeps time.
+
 ### Resting and pausing
 
 Close your chord hand, take it out of frame, or lower it — all three are
@@ -129,6 +159,57 @@ closes the swell, and forgets every gate, so coming back does not sound the
 pose you happened to be holding.
 
 ## Why it is built the way it is
+
+- **Dirt is one node with four curves, and the difference between them is
+  what they do to a QUIET signal.** The shaper sits after the swell, so a
+  curve with a big small-signal gain hands back exactly the level your hand
+  just took away. Warm is near unity at the bottom and bends only near full
+  scale, so how hard you play decides how hard it is driven. Crush is
+  deliberately the opposite — everything arrives flattened against the ceiling
+  however gently it was played, which is the wrong shape for an expressive
+  instrument and the right one for sounding broken on purpose. Fold turns back
+  on itself past full scale rather than flattening, which is where the
+  metallic harmonics come from. Bits quantises amplitude; a waveshaper cannot
+  touch the sample rate, so it is the bit-depth half of a bitcrusher only, and
+  at full drive quiet signals fall into the bottom step and vanish.
+
+- **Dirt changes the tone, not the volume.** The curves differ in gain by a
+  factor of eight, so the level is measured off each curve — a sine run
+  through it, RMS compared against clean — and trimmed back out. Without that,
+  choosing a dirt would mostly be choosing a loudness. The trim only ever
+  attenuates: pushing a quiet curve back up would just be a gain control
+  wearing a hat.
+
+- **Drive sits after the swell.** A clipper in front of the volume control
+  sees full level no matter how quietly you are playing, so it distorts
+  everything equally and the quiet end gets quieter rather than cleaner. That
+  was a real bug: the pad was being crushed at every volume.
+
+- **The filter is two poles, not one.** A single biquad is 12dB an octave,
+  which rolls the top off but never sounds like the filter is closing.
+  Stacking a second makes it 24, and the range went from 500Hz-8kHz to
+  120Hz-9kHz, which is far enough down to leave almost nothing but the sub.
+  Resonance is on the first stage only; doubling it as well would howl.
+
+- **The sequencer books notes ahead, it does not fire them.** Web Audio
+  cannot be driven from a render loop: a note wanted on a frame boundary lands
+  wherever the frame lands, which at 60fps is up to 16ms of jitter and audible
+  as sloppy timing. The loop only ever looks 150ms ahead and books notes at
+  exact times on the audio clock, which then plays them itself.
+
+- **Everything is quantised to a 1/32 note.** That is the finest division any
+  rate asks for, so every arp and gate rate is a whole number of steps and
+  nothing has to cope with a fractional grid. There is a test that every rate
+  divides it evenly.
+
+- **The sub is wired around the filter and the drive.** Sweeping the filter
+  should take the top off without taking the bottom out, and a distorted sine
+  is just a worse sine. It is still gated, because a bass ignoring the gate is
+  a bass playing a different song.
+
+- **Sub level sits outside the settle.** The pitch follows the chord and only
+  moves when the chord does, but the level rides the thumb directly — so the
+  bass can be brought in and out mid-phrase without restarting the arpeggio.
 
 - **One hand owns the harmony.** Splitting "which chord" and "what kind" across
   two hands means neither hand is playable alone and every chord change is a
@@ -319,6 +400,21 @@ pose you happened to be holding.
   stuttered along at whatever the webcam managed, which is fine for a skeleton
   and useless for particles. The renderer works from a `view` object that the
   last detection left behind.
+
+## On a phone
+
+The layout stacks below 820px or in portrait: video on top, controls under it.
+Side by side assumes a window wider than it is tall, which a phone is not, and
+a 300px column beside a 16:9 video leaves neither of them big enough to use.
+
+The camera is asked for `facingMode: "user"` — without it a phone hands back
+the rear camera, the one pointing away from your hands — and the resolution is
+a preference rather than a demand, so a device that cannot manage 720p gives
+what it has and the canvas follows.
+
+Glitch starts at 30 rather than 55 on a small screen, because a phone is
+running the hand model and a full-frame effect chain on one GPU. The slider is
+still there; this only changes where it starts.
 
 ## Known rough edges
 

@@ -58,13 +58,14 @@ canvas.width = 1280;
 canvas.height = 720;
 canvas.getContext = () => ctx2d;
 globalThis.video = { readyState: 0 };
+globalThis.screen = { width: 1920, height: 1080 };   // desktop, so nothing is downgraded
 document.getElementById = id => (id === "overlay" ? canvas : el());
 
 // Strip the CDN import, expose the internals, and load it without touching disk.
 const module = body.replace(/^import .*$/m, "") + `
 export { cfg, diatonicQuality, chordMidis, chordName, romanName, rawDegree,
          settleChord, resetChord, rawVoicing, updateQuality, reaching, render, view, SILENCE,
-         handHeight,
+         handHeight, stepSeconds, arpPool, arpPick, ARP_MODES, GATE_RATES, DIRT_TYPES, curveGain, curveTrim,
          qualityFor, SCALES };
 `;
 const H = await import("data:text/javascript," + encodeURIComponent(module));
@@ -350,6 +351,126 @@ check("the exit angle scales with the entry angle, so the feel is constant",
   }),
   [0.65, 0.65, 0.65]);
 H.cfg.tiltOn = 25;
+
+console.log("\n-- the techno sequencer --");
+H.cfg.bpm = 140;
+const beat = 60 / 140;
+check("a step is a 1/32 note", Math.abs(H.stepSeconds() - beat / 8) < 1e-12, true);
+check("so eight of them make a beat", Math.abs(H.stepSeconds() * 8 - beat) < 1e-12, true);
+H.cfg.bpm = 120;
+check("and tempo actually moves it", Math.abs(H.stepSeconds() - 0.0625) < 1e-12, true);
+H.cfg.bpm = 140;
+
+// Every rate has to be a whole number of steps, or it would drift off the grid.
+check("every arp rate divides the grid evenly",
+  Object.values(H.ARP_MODES).filter(Boolean).every(m => 8 % m.every === 0), true);
+check("every gate rate does too",
+  Object.values(H.GATE_RATES).filter(Boolean).every(n => 8 % n === 0), true);
+
+const triad = [60, 64, 67];
+check("the pool is the chord plus itself an octave up",
+  H.arpPool(triad), [60, 64, 67, 72, 76, 79]);
+
+const pool = H.arpPool(triad);
+check("up runs through the pool and wraps",
+  [0, 1, 2, 3, 4, 5, 6, 7].map(i => H.arpPick(pool, i, "up")),
+  [60, 64, 67, 72, 76, 79, 60, 64]);
+check("up-down turns round without repeating the ends",
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => H.arpPick(pool, i, "updown")),
+  [60, 64, 67, 72, 76, 79, 76, 72, 67, 64, 60]);
+check("a seventh gives an eight-step run, not six",
+  H.arpPool([60, 64, 67, 71]).length, 8);
+check("an empty pool yields nothing rather than crashing",
+  H.arpPick([], 3, "up"), null);
+check("and a one-note pool does not divide by zero",
+  [0, 1, 2].map(i => H.arpPick([60], i, "updown")), [60, 60, 60]);
+
+/* The gate is what "cutting the note with the beat" means, so the arithmetic
+ * that decides when it opens has to hold at every tempo and depth. */
+const gateSpan = rate => H.stepSeconds() * H.GATE_RATES[rate];
+check("a 1/8 gate spans half a beat", Math.abs(gateSpan("1/8") - beat / 2) < 1e-12, true);
+check("a 1/16 gate spans a quarter of one", Math.abs(gateSpan("1/16") - beat / 4) < 1e-12, true);
+check("the open portion always leaves room to close",
+  ["1/4", "1/8", "1/16"].every(r => {
+    const span = gateSpan(r);
+    return Math.max(0.01, Math.min(span * 0.5, span - 0.008)) + 0.006 < span;
+  }), true);
+
+console.log("\n-- dirt --");
+const curveOf = (name, amount) => {
+  H.cfg.dirt = name;
+  return H.DIRT_TYPES[name] ? H.DIRT_TYPES[name](amount) : null;
+};
+// Read the curve at a given input, the way a WaveShaper does.
+const at = (curve, x) => curve[Math.round((x + 1) / 2 * (curve.length - 1))];
+
+check("Clean is a real bypass, not a flat curve", curveOf("Clean", 0.5), null);
+check("every curve stays inside the rails",
+  ["Warm", "Crush", "Fold", "Bits"].every(n =>
+    [0, 0.5, 1].every(a => Array.from(curveOf(n, a)).every(v => v >= -1 && v <= 1))),
+  true);
+check("and every curve is odd, so it adds no DC offset",
+  ["Warm", "Crush", "Fold"].every(n => {
+    const c = curveOf(n, 0.7);
+    return Math.abs(at(c, 0.5) + at(c, -0.5)) < 0.01;
+  }), true);
+
+/* The distinction that matters, given the shaper sits after the swell: what
+ * each curve does to a QUIET signal. Warm has to leave it alone or it hands
+ * back the level the hand just took away; Crush is supposed to flatten
+ * everything, which is why it sounds broken. */
+const quietGain = (name, amount) => {
+  const c = curveOf(name, amount);
+  return at(c, 0.08) / 0.08;
+};
+for (const n of ["Warm", "Crush", "Fold", "Bits"]) {
+  console.log("         (" + n.padEnd(6) + " gain on a quiet signal: " +
+              quietGain(n, 0.5).toFixed(2) + "x at drive 0.5, " +
+              quietGain(n, 1).toFixed(2) + "x at 1.0)");
+}
+check("Warm barely touches a quiet signal", quietGain("Warm", 0.5) < 1.6, true);
+check("Crush very much does, which is the point",
+  quietGain("Crush", 0.5) > 4, true);
+/* What separates folding from clipping is that the transfer curve stops being
+ * monotonic: past a point more input gives LESS output, which is the fold.
+ * Clipping only ever flattens. */
+const monotonic = curve => {
+  for (let i = (curve.length / 2 | 0) + 1; i < curve.length; i++) {
+    if (curve[i] < curve[i - 1] - 1e-6) return false;
+  }
+  return true;
+};
+check("Fold turns back on itself; Warm and Crush only flatten",
+  ["Fold", "Warm", "Crush"].map(n => monotonic(curveOf(n, 1))),
+  [false, true, true]);
+
+/* Dirt is supposed to change the tone, not the volume. Each curve has a wildly
+ * different gain - Crush is eight times Warm on a quiet signal - so the level
+ * is measured off the curve itself and trimmed back out, or picking a dirt
+ * would just be picking a loudness. */
+const trimmed = (name, amount) => H.curveGain(curveOf(name, amount)) * H.curveTrim(curveOf(name, amount));
+check("the three that boost are trimmed back to clean",
+  ["Warm", "Crush", "Fold"].every(n =>
+    [0.3, 0.6, 1].every(a => Math.abs(trimmed(n, a) - 1) < 0.05)),
+  true);
+// Bits attenuates rather than boosts, and the trim only ever attenuates -
+// pushing it back up would just be a gain control wearing a hat.
+check("and nothing ends up louder than clean",
+  ["Warm", "Crush", "Fold", "Bits"].every(n =>
+    [0.3, 0.6, 1].every(a => trimmed(n, a) <= 1.05)),
+  true);
+for (const n of ["Warm", "Crush", "Fold"]) {
+  console.log("         (" + n.padEnd(6) + " raw gain " +
+              H.curveGain(curveOf(n, 1)).toFixed(2) + "x, trimmed to " +
+              trimmed(n, 1).toFixed(2) + "x)");
+}
+check("Bits quantises into steps rather than a smooth ramp", (() => {
+  const c = curveOf("Bits", 1);
+  const vals = new Set();
+  for (let x = 0; x <= 1; x += 0.02) vals.add(at(c, x).toFixed(4));
+  return vals.size < 12;                       // a smooth curve would give ~51
+})(), true);
+H.cfg.dirt = "Clean";
 
 console.log("\n-- hand height does not leak the hand's rotation --");
 /* Rotating a hand to ask for a minor chord must not change how loud it is.
