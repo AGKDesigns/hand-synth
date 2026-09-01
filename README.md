@@ -17,6 +17,16 @@ npm start                  # http://localhost:5173
 Then hit **Start** and allow the camera. First run downloads about 8MB of hand
 model from Google's CDN; after that the browser caches it.
 
+```powershell
+npm test                   # no dependencies, no framework
+```
+
+The tests pull the module straight back out of `index.html` and import it as a
+data URL against a stub DOM, so what runs is the shipped source rather than a
+copy of it that can drift. They cover the harmony, the finger reading and the
+timing that decides when a chord commits — not the audio or the canvas, which
+need a browser.
+
 Opening `index.html` directly off disk does not work. `getUserMedia` needs a
 secure context, and the ES module import from a `file://` page comes from origin
 `null`, which CORS rejects. `serve.mjs` is a dozen lines of Node standard
