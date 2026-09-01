@@ -24,8 +24,9 @@ npm test                   # no dependencies, no framework
 The tests pull the module straight back out of `index.html` and import it as a
 data URL against a stub DOM, so what runs is the shipped source rather than a
 copy of it that can drift. They cover the harmony, the finger reading and the
-timing that decides when a chord commits — not the audio or the canvas, which
-need a browser.
+timing that decides when a chord commits, plus a smoke test that renders the
+overlay against a fake 2d context and fails on any non-finite coordinate. What
+the overlay *looks* like still needs eyes; the audio needs a browser.
 
 Opening `index.html` directly off disk does not work. `getUserMedia` needs a
 secure context, and the ES module import from a `file://` page comes from origin
@@ -254,6 +255,16 @@ pose you happened to be holding.
   the wrist about seventy percent of the way down the frame, which is where a
   hand actually sits when your elbow is on a desk. The slider goes down to 15%.
 
+- **Height is the average of the palm, not the wrist.** One landmark is one
+  point, so anything that moves it moves the volume — and rotating a hand to
+  ask for a minor chord moves the wrist. Averaging the wrist and the four
+  knuckles fixes it by construction: rotating a rigid hand about the middle of
+  its palm leaves the average exactly where it was, which is asserted. Fingers
+  are deliberately excluded from that average; including them would make the
+  volume depend on how many were up, which is to say on which chord you were
+  playing. On a synthetic hand the old wrist reading drifted 0.017 across a
+  ±35° tilt, worth about 6% of volume mid-band.
+
 - **The Volume meter shows the raw hand height next to the level.** Every
   attempt to tune this by feel was really a disagreement about where a hand
   sits in frame, which is a number, and now it is on screen. If the reading is
@@ -271,9 +282,43 @@ pose you happened to be holding.
 - **Resonance is fixed and modest.** It used to be on the left tilt, but a
   three-note chord through a resonant filter turns to mud.
 
-- **The waveform and the big chord name are load-bearing, not decoration.**
-  They are what makes the instrument legible on a recording — you can see what
-  a hand position did without knowing anything about the mapping.
+- **The overlay is load-bearing, not decoration.** It is what makes the
+  instrument legible on a recording — you can see what a hand position did
+  without knowing anything about the mapping. Landmarks are squares and the
+  skeleton is a hairline because blobs and thick bones read as a cartoon,
+  while ticks and numbers read as a measurement. Every fingertip carries its
+  own extension score, which is the number the finger gate is actually
+  thresholding, so the picture and the decision are the same thing.
+
+- **The video is graded and glitched by the sound, not by a timer.** The
+  filter sets the colour grade and the width of the chromatic split, the echo
+  send becomes a literal feedback trail — each new frame drawn at less than
+  full alpha leaves the older ones decaying underneath — the volume drives the
+  scanlines and the tearing, and every chord change punches a burst of slice
+  displacement that decays over a quarter second. Randomised glitch would look
+  the same on any input; this way the picture is doing what you are hearing.
+
+- **All of it is drawImage, never getImageData.** A per-pixel loop at 720p
+  cannot hold 60fps next to MediaPipe inference. The chromatic split leans on
+  sepia+saturate+hue-rotate, which tints an arbitrary image to a single hue and
+  so avoids an offscreen pass per channel; the slice displacement blits the
+  canvas onto itself. Worst case is 15 blits and about 630 canvas calls a
+  frame, and there is a test that fails if either runs away.
+
+- **The Glitch slider turns all of it off.** Taste varies and so do machines,
+  so the whole effect chain scales from one control, and the frame rate is on
+  screen next to it.
+
+- **Particles carry the volume because nothing else could.** The filter has
+  the waveform and the chord has its name, but "how hard am I playing" has no
+  natural picture. Emission rate, launch speed and turbulence all scale with
+  level, so quiet is a drift and loud is a scatter.
+
+- **Drawing is split from detection.** Detection is capped at the camera frame
+  rate; drawing is not. Running them together meant the whole overlay
+  stuttered along at whatever the webcam managed, which is fine for a skeleton
+  and useless for particles. The renderer works from a `view` object that the
+  last detection left behind.
 
 ## Known rough edges
 

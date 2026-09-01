@@ -21,20 +21,50 @@ const el = () => ({
   classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
   appendChild() {}, blur() {}, querySelector: () => el(),
 });
-const noop = new Proxy({}, { get: () => () => {} });
 
-globalThis.document = { getElementById: el, createElement: el };
+/* A 2d context that records what it was asked to do. The overlay cannot be
+ * seen from here, but it can be proved to run: every drawing call lands on
+ * this, and anything undefined or mistyped throws on the way. */
+const drawn = [];
+const ctx2d = new Proxy({}, {
+  get(_, k) {
+    if (k === "measureText") return () => ({ width: 120 });
+    if (k === "createLinearGradient") return () => ({ addColorStop() {} });
+    return (...args) => {
+      if (args.some(a => typeof a === "number" && !Number.isFinite(a))) {
+        throw new Error("ctx." + String(k) + " got a non-finite number: " + args.join(", "));
+      }
+      drawn.push(String(k));
+    };
+  },
+  set() { return true; },
+});
+
+// createElement("canvas") has to come back usable: the video effects build an
+// offscreen buffer for the echo trail.
+globalThis.document = {
+  getElementById: el,
+  createElement: tag => {
+    const e = el();
+    if (tag === "canvas") { e.width = 1280; e.height = 720; e.getContext = () => ctx2d; }
+    return e;
+  },
+};
 globalThis.addEventListener = () => {};
 globalThis.requestAnimationFrame = () => {};
 globalThis.performance = { now: () => 0 };
 const canvas = el();
-canvas.getContext = () => noop;
+canvas.width = 1280;
+canvas.height = 720;
+canvas.getContext = () => ctx2d;
+globalThis.video = { readyState: 0 };
 document.getElementById = id => (id === "overlay" ? canvas : el());
 
 // Strip the CDN import, expose the internals, and load it without touching disk.
 const module = body.replace(/^import .*$/m, "") + `
 export { cfg, diatonicQuality, chordMidis, chordName, romanName, rawDegree,
-         settleChord, resetChord, rawVoicing, updateQuality, reaching,
+         settleChord, resetChord, rawVoicing, updateQuality, reaching, render, view, SILENCE,
+         handHeight,
          qualityFor, SCALES };
 `;
 const H = await import("data:text/javascript," + encodeURIComponent(module));
@@ -320,6 +350,180 @@ check("the exit angle scales with the entry angle, so the feel is constant",
   }),
   [0.65, 0.65, 0.65]);
 H.cfg.tiltOn = 25;
+
+console.log("\n-- hand height does not leak the hand's rotation --");
+/* Rotating a hand to ask for a minor chord must not change how loud it is.
+ * A synthetic rigid hand is enough to show it: the geometry is the whole
+ * claim, and a real one would only add tracking noise on top. */
+function rigidHand() {
+  const lm = [];
+  lm[0] = { x: .50, y: .62 };                                     // wrist
+  const mcp = [[.455, .53], [.49, .515], [.525, .52], [.558, .535]];
+  const cols = [5, 9, 13, 17];
+  for (let i = 0; i < 4; i++) {
+    const [mx, my] = mcp[i];
+    for (let j = 0; j < 4; j++) {                                 // mcp..tip
+      lm[cols[i] + j] = { x: mx + (mx - .5) * j * .35, y: my - j * .035 };
+    }
+  }
+  for (let j = 0; j < 4; j++) lm[1 + j] = { x: .44 - j * .022, y: .60 - j * .018 };
+  return lm;
+}
+
+// Rotate every landmark about a pivot, the way a hand pivots in place.
+const rotateAbout = (lm, deg, px, py) => {
+  const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+  return lm.map(p => ({
+    x: px + (p.x - px) * c - (p.y - py) * s,
+    y: py + (p.x - px) * s + (p.y - py) * c,
+  }));
+};
+
+const flat = rigidHand();
+const palmCx = [0, 5, 9, 13, 17].reduce((a, i) => a + flat[i].x, 0) / 5;
+const palmCy = [0, 5, 9, 13, 17].reduce((a, i) => a + flat[i].y, 0) / 5;
+
+// How far each measure drifts as the hand tilts through the range that
+// crosses the minor threshold and back.
+const drift = measure => {
+  const base = measure(flat);
+  let worst = 0;
+  for (let deg = -35; deg <= 35; deg += 5) {
+    worst = Math.max(worst, Math.abs(measure(rotateAbout(flat, deg, palmCx, palmCy)) - base));
+  }
+  return worst;
+};
+
+const wristOnly = lm => 1 - lm[0].y;
+const palmDrift = drift(H.handHeight);
+const wristDrift = drift(wristOnly);
+
+check("a hand rotating in place does not move the measured height at all",
+  palmDrift < 1e-9, true);
+check("reading the wrist alone did move it", wristDrift > 0.005, true);
+
+/* What that drift was worth, measured rather than guessed. It has to be
+ * evaluated mid-band: at the top of the band the volume is clamped at full
+ * and hides the whole effect, which is exactly why this only became audible
+ * once the band was narrowed. */
+const asVolume = h => Math.pow(Math.max(0, Math.min(1, (h - 0.02) / (0.30 - 0.02))), 1.2);
+const mid = 0.16;
+const cost = asVolume(mid + wristDrift) - asVolume(mid);
+console.log("         (wrist drift " + wristDrift.toFixed(4) +
+            " = " + Math.round(cost * 100) + "% volume mid-band)");
+check("and that drift was audible, not academic", cost > 0.02, true);
+
+// The other half of the bargain: curling fingers must not change it either,
+// or the volume would depend on which chord you were playing.
+const curled = flat.map((p, i) => (i >= 5 && i % 4 !== 1)
+  ? { x: p.x, y: p.y + 0.06 } : p);            // fingertips folded down
+check("and curling the fingers does not move it either",
+  Math.abs(H.handHeight(curled) - H.handHeight(flat)) < 1e-9, true);
+
+console.log("\n-- the overlay renders --");
+/* What the overlay looks like cannot be checked from here. That it runs at
+ * all can be: a fake 2d context records every call and throws on any NaN
+ * coordinate, which is how a canvas usually fails - silently, by drawing
+ * nothing where the number went bad. */
+const fakeHand = (cx, cy) =>
+  Array.from({ length: 21 }, (_, i) => ({
+    x: cx + Math.cos(i) * 0.05,
+    y: cy + Math.sin(i) * 0.07,
+    z: 0,
+  }));
+
+function renderOnce(state) {
+  Object.assign(H.view, state);
+  drawn.length = 0;
+  H.render(1234, 16.7);
+  return drawn.length;
+}
+
+let threw = null;
+try {
+  // Nothing in frame.
+  renderOnce({ hands: { chord: null, mod: null }, gates: { chord: null, mod: null },
+               scores: { chord: null, mod: null }, held: H.SILENCE,
+               level: 0, tilt: 0, flip: false, cut: .5, echo: 0 });
+
+  // Both hands, a chord sounding, everything lit up.
+  H.cfg.mode = "letters";
+  const full = {
+    hands: { chord: fakeHand(.3, .5), mod: fakeHand(.7, .55) },
+    gates: { chord: gate("index", "middle"), mod: gate("index", "thumb") },
+    scores: { chord: { thumb: .04, index: .21, middle: .19, ring: .02, pinky: .01 },
+              mod: { thumb: .15, index: .22, middle: .03, ring: .01, pinky: .02 } },
+    held: { degree: 6, quality: "min", voicing: 3, shift: 1, flip: true, key: "x" },
+    level: 1, tilt: 31, flip: true, cut: .8, echo: .4,
+  };
+  // Several frames, so the particle system gets to emit, move and expire.
+  for (let i = 0; i < 90; i++) renderOnce(full);
+
+  // Every degree and voicing, in both modes, in case any lookup is missing.
+  for (const mode of ["letters", "scale"]) {
+    H.cfg.mode = mode;
+    for (let d = 1; d <= 7; d++) {
+      for (let v = 1; v <= 4; v++) {
+        renderOnce({ ...full, held: { degree: d, quality: H.qualityFor(d, false),
+                                      voicing: v, shift: 0, flip: false, key: "y" } });
+      }
+    }
+  }
+} catch (e) {
+  threw = e.message;
+}
+
+// The video effects have their own branches: off entirely, and full tilt.
+try {
+  const loud = {
+    hands: { chord: fakeHand(.3, .5), mod: fakeHand(.7, .55) },
+    gates: { chord: gate("index", "middle"), mod: gate("index") },
+    scores: { chord: { thumb: .04, index: .21, middle: .19, ring: .02, pinky: .01 },
+              mod: { thumb: .15, index: .22, middle: .03, ring: .01, pinky: .02 } },
+    held: { degree: 3, quality: "maj", voicing: 2, shift: 0, flip: false, key: "k" },
+    level: 1, tilt: 30, flip: false, cut: 1, echo: 1,
+  };
+  for (const glitch of [0, 0.01, 0.5, 1]) {
+    H.cfg.glitch = glitch;
+    for (let i = 0; i < 10; i++) {
+      // Alternate the chord key so the change burst fires and decays.
+      renderOnce({ ...loud, held: { ...loud.held, key: "k" + (i % 2) } });
+    }
+  }
+} catch (e) {
+  threw = threw || e.message;
+}
+
+check("rendering never throws, from empty frame to everything at once", threw, null);
+
+/* Draw-call budget. This cannot measure a real browser, but it can catch the
+ * shape of a problem: the effects are all blits, and blits are the thing that
+ * would sink the frame rate if one of them ended up in a loop it should not. */
+H.cfg.glitch = 1;
+const worst = {
+  hands: { chord: fakeHand(.3, .5), mod: fakeHand(.7, .55) },
+  gates: { chord: gate("thumb", "index", "middle", "ring", "pinky"),
+           mod: gate("thumb", "index", "middle", "ring", "pinky") },
+  scores: { chord: { thumb: .3, index: .3, middle: .3, ring: .3, pinky: .3 },
+            mod: { thumb: .3, index: .3, middle: .3, ring: .3, pinky: .3 } },
+  held: { degree: 7, quality: "dim", voicing: 4, shift: 1, flip: true, key: "w" },
+  level: 1, tilt: 40, flip: true, cut: 1, echo: 1,
+};
+for (let i = 0; i < 200; i++) renderOnce({ ...worst, held: { ...worst.held, key: "w" + i } });
+renderOnce({ ...worst, held: { ...worst.held, key: "wX" } });
+const blits = drawn.filter(k => k === "drawImage").length;
+console.log("         (worst case: " + blits + " blits, " + drawn.length + " ctx calls per frame)");
+check("the blit count per frame stays bounded", blits < 40, true);
+check("and the particle system does not grow without limit",
+  drawn.filter(k => k === "fillRect").length < 800, true);
+H.cfg.glitch = 0.55;
+check("and it actually drew something",
+  renderOnce({ hands: { chord: fakeHand(.4, .5), mod: null },
+               gates: { chord: gate("index"), mod: null },
+               scores: { chord: { thumb: 0, index: .2, middle: 0, ring: 0, pinky: 0 }, mod: null },
+               held: { degree: 1, quality: "maj", voicing: 1, shift: 0, flip: false, key: "z" },
+               level: .6, tilt: 5, flip: false, cut: .5, echo: .2 }) > 100,
+  true);
 
 console.log(fails ? `\n${fails} FAILED` : `\nall passed`);
 process.exit(fails ? 1 : 0);

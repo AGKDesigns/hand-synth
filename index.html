@@ -127,6 +127,7 @@
   <div class="row"><label>Octave</label><select id="octSel"></select></div>
   <div class="row"><label>Master</label><input type="range" id="volSlider" min="0" max="100" value="55"></div>
   <div class="row"><label>Vibrato</label><input type="range" id="vibSlider" min="0" max="40" value="8"></div>
+  <div class="row"><label>Glitch</label><input type="range" id="fxSlider" min="0" max="100" value="55"></div>
   <div class="row"><label>Reach</label><input type="range" id="reachSlider" min="15" max="100" value="30"></div>
   <div class="row"><label>Settle</label><input type="range" id="settleSlider" min="60" max="600" step="20" value="260"></div>
   <div class="row"><label>Rotation</label><input type="range" id="tiltSlider" min="12" max="40" value="25"></div>
@@ -269,7 +270,7 @@ const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", 
 
 const cfg = { mode: "letters", root: 60, scale: "Major", wave: "sawtooth", octave: 0,
               volume: 0.55, vibrato: 8, reach: 0.30, sens: 0.5, thumb: 0.5,
-              settleMs: 260, tiltOn: 25, swap: false };
+              settleMs: 260, tiltOn: 25, glitch: 0.55, swap: false };
 
 /* ------------------------------------------------------------------ *
  * Audio
@@ -476,6 +477,26 @@ const romanName = (degree, quality) =>
 const TIP = { thumb: 4, index: 8, middle: 12, ring: 16, pinky: 20 };
 const PIP = { thumb: 3, index: 6, middle: 10, ring: 14, pinky: 18 };
 const WRIST = 0, MID_MCP = 9, PINKY_MCP = 17;
+
+/* The wrist, the four knuckles, and nothing else.
+ *
+ * Height used to be read off the wrist alone, and one landmark is one point:
+ * anything that moves it moves the volume, so rotating a hand to ask for a
+ * minor chord nudged the loudness on the way. Averaging the palm fixes that
+ * by construction - rotating a rigid hand about the middle of its palm leaves
+ * the average exactly where it was.
+ *
+ * Fingers are deliberately excluded. They are the other obvious thing to
+ * average, and they would make the volume depend on how many were up, which
+ * is to say on which chord you were playing. */
+const PALM = [WRIST, 5, MID_MCP, 13, PINKY_MCP];
+
+// Height of the hand in the frame: 0 at the bottom, 1 at the top.
+function handHeight(lm) {
+  let sum = 0;
+  for (const i of PALM) sum += lm[i].y;
+  return 1 - clamp01(sum / PALM.length);
+}
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0));
 
@@ -768,6 +789,7 @@ $("waveSel").onchange = e => {
 };
 $("volSlider").oninput = e => { cfg.volume = e.target.value / 100; if (master) master.gain.value = cfg.volume; };
 $("vibSlider").oninput = e => { cfg.vibrato = +e.target.value; if (vibDepth) vibDepth.gain.value = cfg.vibrato; };
+$("fxSlider").oninput = e => { cfg.glitch = e.target.value / 100; };
 $("reachSlider").oninput = e => { cfg.reach = e.target.value / 100; };
 $("settleSlider").oninput = e => { cfg.settleMs = +e.target.value; };
 $("tiltSlider").oninput = e => { cfg.tiltOn = +e.target.value; };
@@ -793,7 +815,8 @@ function setBar(name, frac, text) {
  * Tracking loop
  * ------------------------------------------------------------------ */
 const video = $("video"), canvas = $("overlay"), g2 = canvas.getContext("2d");
-let landmarker = null, lastVideoTime = -1, paused = false, fps = null, lastFrameAt = 0;
+let landmarker = null, lastVideoTime = -1, paused = false, fps = null;
+let lastDetectAt = 0, lastRenderAt = 0;
 
 /* Pause has to be a real stop, not just a mute: it drops the chord, closes
  * the swell, and forgets every gate. Coming back from a pause with the
@@ -845,9 +868,138 @@ function drawFrame() {
   g2.setTransform(-1, 0, 0, 1, canvas.width, 0);
   g2.drawImage(video, 0, 0, canvas.width, canvas.height);
   g2.restore();
-  g2.fillStyle = "rgba(11,13,16,.35)";
+  g2.fillStyle = "rgba(4,10,16,.46)";
   g2.fillRect(0, 0, canvas.width, canvas.height);
 }
+
+/* ---- video effects -------------------------------------------------
+ *
+ * Driven by the same values as the sound, so the picture is doing what you
+ * are hearing rather than decorating it. The filter sets the colour grade and
+ * the width of the chromatic split; the echo becomes a real feedback trail;
+ * the volume drives the scanlines and the tearing; and every chord change
+ * punches a burst of slice displacement that decays over a quarter second.
+ *
+ * All of it is drawImage rather than per-pixel work - a getImageData loop at
+ * 720p cannot hold 60fps - and all of it scales with the Glitch setting, so
+ * there is one control that turns the whole thing off. */
+let trail = null, tctx = null;
+const fx = { energy: 0, lastKey: "" };
+
+function ensureTrail() {
+  if (trail && trail.width === canvas.width && trail.height === canvas.height) return;
+  trail = document.createElement("canvas");
+  trail.width = canvas.width;
+  trail.height = canvas.height;
+  tctx = trail.getContext("2d");
+}
+
+/* A four-pixel tile repeated, rather than a fillRect per line. At 720p that
+ * is one call instead of a hundred and eighty, every frame, forever. The tile
+ * is solid and the strength comes from globalAlpha, so it never needs
+ * rebuilding as the volume moves. */
+let scanTile = null;
+
+function scanlines(alpha) {
+  if (!scanTile) {
+    scanTile = document.createElement("canvas");
+    scanTile.width = 1;
+    scanTile.height = 4;
+    const t = scanTile.getContext("2d");
+    t.fillStyle = "#000";
+    t.fillRect(0, 0, 1, 2);
+  }
+  g2.save();
+  g2.globalAlpha = Math.max(0, Math.min(1, alpha));
+  g2.fillStyle = g2.createPattern(scanTile, "repeat");
+  g2.fillRect(0, 0, canvas.width, canvas.height);
+  g2.restore();
+}
+
+function drawVideoFx(now, dt) {
+  const W = canvas.width, H = canvas.height, amt = cfg.glitch;
+  if (amt <= 0.01) { drawFrame(); return; }
+  ensureTrail();
+
+  // A chord change is the one event worth punching the picture for.
+  const key = (view.held && view.held.key) || "";
+  if (key !== fx.lastKey) {
+    fx.lastKey = key;
+    if (key && key !== "-") fx.energy = 1;
+  }
+  fx.energy = Math.max(0, fx.energy - dt / 260);
+
+  /* The trail buffer. Drawing each new frame at less than full alpha leaves
+   * the older ones underneath, decaying - which is what an echo is, so the
+   * echo send drives how transparent the new frame goes on. */
+  tctx.globalAlpha = 1 - clamp01(view.echo) * 0.78 * amt;
+  tctx.setTransform(-1, 0, 0, 1, W, 0);
+  tctx.drawImage(video, 0, 0, W, H);
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.globalAlpha = 1;
+
+  // Grade follows the filter: closed is cold and flat, open is bright and lurid.
+  const cut = view.cut;
+  g2.filter = "saturate(" + (0.55 + cut * 1.15).toFixed(2) + ") contrast(" +
+              (0.95 + cut * 0.35).toFixed(2) + ") hue-rotate(" +
+              Math.round((cut - 0.5) * 42) + "deg)";
+  g2.drawImage(trail, 0, 0, W, H);
+  g2.filter = "none";
+
+  /* Chromatic split. sepia+saturate+hue-rotate is the trick that tints an
+   * arbitrary image to a single hue, which is what makes this possible
+   * without an offscreen pass per channel. */
+  const dx = (1 + cut * 6 + fx.energy * 14) * amt;
+  if (dx > 0.4) {
+    g2.globalCompositeOperation = "screen";
+    g2.globalAlpha = 0.42 * amt;
+    g2.filter = "sepia(1) saturate(7) hue-rotate(-35deg)";
+    g2.drawImage(trail, -dx, 0, W, H);
+    g2.filter = "sepia(1) saturate(7) hue-rotate(155deg)";
+    g2.drawImage(trail, dx, 0, W, H);
+    g2.filter = "none";
+    g2.globalAlpha = 1;
+    g2.globalCompositeOperation = "source-over";
+  }
+
+  g2.fillStyle = "rgba(4,10,16,.46)";
+  g2.fillRect(0, 0, W, H);
+
+  /* Slice displacement, blitted from the canvas back onto itself. The band
+   * count rides the volume so a loud passage tears more, and the burst on a
+   * chord change is what makes the change feel like it landed. */
+  const bands = Math.round((view.level * 3 + fx.energy * 9) * amt);
+  for (let i = 0; i < bands; i++) {
+    const h = 6 + Math.random() * 42;
+    const y = Math.random() * (H - h);
+    const off = (Math.random() - 0.5) * (18 + fx.energy * 110) * amt;
+    g2.drawImage(canvas, 0, y, W, h, off, y, W, h);
+  }
+
+  // Scanlines and a rolling bar: the cheap half of the look, and the half
+  // that survives being compressed by a video platform.
+  scanlines((0.10 + view.level * 0.14) * amt);
+
+  const bar = ((now / 2600) % 1) * (H + 120) - 60;
+  const grad = g2.createLinearGradient(0, bar - 50, 0, bar + 50);
+  grad.addColorStop(0, "rgba(160,230,255,0)");
+  grad.addColorStop(0.5, "rgba(160,230,255," + (0.06 * amt).toFixed(3) + ")");
+  grad.addColorStop(1, "rgba(160,230,255,0)");
+  g2.fillStyle = grad;
+  g2.fillRect(0, bar - 50, W, 100);
+}
+
+/* Everything the overlay needs, left here by the last detection.
+ *
+ * Detection is capped at the camera's frame rate; drawing is not. Running
+ * them together meant the whole overlay stuttered along at whatever the
+ * webcam managed, which is fine for a skeleton and useless for particles. */
+const view = {
+  hands: { chord: null, mod: null },
+  gates: { chord: null, mod: null },
+  scores: { chord: null, mod: null },
+  held: null, level: 0, tilt: 0, flip: false, cut: 0.5, echo: 0, height: 0,
+};
 
 const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
                [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
@@ -898,14 +1050,10 @@ $("startBtn").onclick = async () => {
 function loop() {
   requestAnimationFrame(loop);
   if (!landmarker || video.readyState < 2) return;
-  if (video.currentTime === lastVideoTime) return;
-  lastVideoTime = video.currentTime;
 
-  // One timestamp for the whole frame, so every gate and settler agrees on
-  // when "now" is even if the frame itself takes a while to process.
   const now = performance.now();
-  fps = fps === null ? 30 : fps + (1000 / Math.max(1, now - lastFrameAt) - fps) * 0.1;
-  lastFrameAt = now;
+  const dt = Math.min(100, now - (lastRenderAt || now));
+  lastRenderAt = now;
 
   // Keep showing the camera while paused - you want to see yourself get
   // into position before the sound comes back - but skip the detection,
@@ -916,8 +1064,20 @@ function loop() {
     return;
   }
 
-  const res = landmarker.detectForVideo(video, performance.now());
-  drawFrame();
+  // A repeated video frame has nothing new to read, but the overlay still
+  // has somewhere to be, so only the detection is gated on it.
+  if (video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    fps = fps === null ? 30 : fps + (1000 / Math.max(1, now - lastDetectAt) - fps) * 0.1;
+    lastDetectAt = now;
+    detect(now);
+  }
+
+  render(now, dt);
+}
+
+function detect(now) {
+  const res = landmarker.detectForVideo(video, now);
 
   const hands = { chord: null, mod: null };
   const count = (res.landmarks && res.landmarks.length) || 0;
@@ -931,18 +1091,22 @@ function loop() {
   }
 
   let upChord = null, upMod = null, thumbScore = null, thumbWhich = "";
+  let scoresChord = null, scoresMod = null;
   if (hands.chord) {
-    const s = extensionScores(hands.chord);
-    upChord = updateGate(gates.chord, s, now);
-    thumbScore = s.thumb;
+    scoresChord = extensionScores(hands.chord);
+    upChord = updateGate(gates.chord, scoresChord, now);
+    thumbScore = scoresChord.thumb;
     thumbWhich = "chord";
   } else resetGate(gates.chord);
   if (hands.mod) {
-    const s = extensionScores(hands.mod);
-    upMod = updateGate(gates.mod, s, now);
+    scoresMod = extensionScores(hands.mod);
+    upMod = updateGate(gates.mod, scoresMod, now);
     // Show whichever thumb is closer to firing, so the meter is useful for
     // tuning whichever one you happen to be testing.
-    if (thumbScore === null || s.thumb > thumbScore) { thumbScore = s.thumb; thumbWhich = "mod"; }
+    if (thumbScore === null || scoresMod.thumb > thumbScore) {
+      thumbScore = scoresMod.thumb;
+      thumbWhich = "mod";
+    }
   } else resetGate(gates.mod);
 
   setBar("fps", fps / 60, Math.round(fps) + " fps · settle " +
@@ -969,7 +1133,7 @@ function loop() {
 
     // The theremin part: height is loudness. Squared, because a linear gain
     // reads as most of the travel doing nothing and then a jump at the top.
-    const hs = smoothVolume(1 - clamp01(hands.chord[WRIST].y));   // 0 low, 1 high
+    const hs = smoothVolume(handHeight(hands.chord));            // 0 low, 1 high
     // Still curved, because gain linear in position reads as most of the
     // travel doing nothing and then a jump - but gently, since the band
     // remap above has already done the heavy lifting.
@@ -997,14 +1161,17 @@ function loop() {
     const roll = smoothCut(rollDegrees(hands.mod));
     const cutHz = 2000 * Math.pow(4, Math.max(-1, Math.min(1, roll / 50)));
     filter.frequency.setTargetAtTime(cutHz, ctx.currentTime, 0.04);
-    setBar("cut", (Math.max(-1, Math.min(1, roll / 50)) + 1) / 2, Math.round(cutHz) + " Hz");
+    view.cut = (Math.max(-1, Math.min(1, roll / 50)) + 1) / 2;
+    setBar("cut", view.cut, Math.round(cutHz) + " Hz");
 
-    const echo = smoothEcho(1 - clamp01(hands.mod[WRIST].y));
-    delaySend.gain.setTargetAtTime(echo * 0.6, ctx.currentTime, 0.05);
-    setBar("echo", echo, Math.round(echo * 100) + "%");
+    view.echo = smoothEcho(handHeight(hands.mod));
+    delaySend.gain.setTargetAtTime(view.echo * 0.6, ctx.currentTime, 0.05);
+    setBar("echo", view.echo, Math.round(view.echo * 100) + "%");
   } else {
     filter.frequency.setTargetAtTime(2000, ctx.currentTime, 0.1);
     delaySend.gain.setTargetAtTime(0, ctx.currentTime, 0.1);
+    view.cut = 0.5;
+    view.echo = 0;
     setBar("cut", 0.5, "--");
     setBar("echo", 0, "--");
   }
@@ -1024,11 +1191,15 @@ function loop() {
     chordOff();
   }
 
-  // --- drawing and panel ----------------------------------------------
-  drawScope(degree);
-  if (hands.chord) drawHand(hands.chord, upChord, "chord");
-  if (hands.mod) drawHand(hands.mod, upMod, "mod");
-  drawReadout(degree, q, flip, voicing, shift);
+  // --- hand it to the renderer and the panel ---------------------------
+  view.hands = hands;
+  view.gates = { chord: upChord, mod: upMod };
+  view.scores = { chord: scoresChord, mod: scoresMod };
+  view.held = held;
+  view.level = level;
+  view.height = hands.chord ? handHeight(hands.chord) : 0;
+  view.tilt = tilt;
+  view.flip = held.flip;
 
   for (const row of DEGREE_ROWS) {
     noteKeyEls[row.degree].classList.toggle("lit", row.degree === degree);
@@ -1053,106 +1224,377 @@ function loop() {
                  (shift === 1 ? "  [sharp]" : shift === 12 ? "  [+8ve]" : ""));
 }
 
-/* The waveform is the thing that reads on a recording - it makes the sound
- * visible without anyone having to know what a filter is. Three offset
- * traces rather than one, because a single hairline disappears against a
- * busy background. */
+/* ------------------------------------------------------------------ *
+ * The overlay
+ *
+ * This is what ends up on a recording, so it has two jobs: telling you what
+ * the instrument thinks your hands are doing, and being worth pointing a
+ * camera at. Squares and hairlines rather than blobs, numbers next to the
+ * things they measure, and particles for the one value with no other
+ * picture - how hard you are playing.
+ * ------------------------------------------------------------------ */
+const HUD = {
+  chord: { tint: "rgba(120,220,255,", label: "CHORD" },
+  mod:   { tint: "rgba(255,180,84,",  label: "MODIFY" },
+};
+
+function render(now, dt) {
+  const held = view.held || SILENCE;
+  const hue = held.degree ? degreeHue(held.degree) : 200;
+
+  drawVideoFx(now, dt);
+  drawGrid(now);
+
+  // Behind the hands, so the hands read as being in front of the effect.
+  stepParticles(dt);
+  emitParticles(dt, hue);
+  drawParticles();
+
+  drawScope(held.degree);
+
+  for (const role of ["chord", "mod"]) {
+    if (view.hands[role]) drawHandHud(role, now);
+  }
+
+  drawGauges();
+  drawReadout(held);
+  drawChrome();
+}
+
+/* A faint grid and a slow sweep. The grid alone reads as a screenshot; it is
+ * the sweep that reads as a machine which is currently running. */
+function drawGrid(now) {
+  const W = canvas.width, H = canvas.height;
+  g2.strokeStyle = "rgba(120,220,255,.05)";
+  g2.lineWidth = 1;
+  g2.beginPath();
+  for (let x = 0; x <= W; x += 64) { g2.moveTo(x + .5, 0); g2.lineTo(x + .5, H); }
+  for (let y = 0; y <= H; y += 64) { g2.moveTo(0, y + .5); g2.lineTo(W, y + .5); }
+  g2.stroke();
+
+  const sweep = (now / 3600 % 1) * H;
+  const grad = g2.createLinearGradient(0, sweep - 70, 0, sweep + 70);
+  grad.addColorStop(0, "rgba(120,220,255,0)");
+  grad.addColorStop(.5, "rgba(120,220,255,.07)");
+  grad.addColorStop(1, "rgba(120,220,255,0)");
+  g2.fillStyle = grad;
+  g2.fillRect(0, sweep - 70, W, 140);
+}
+
+/* ---- particles -----------------------------------------------------
+ * Volume is the only control with no natural picture. A filter has the
+ * waveform, a chord has its name, but "how hard am I playing" is invisible
+ * until something carries it. These do: how many there are, how fast they
+ * leave, and how straight they travel. Quiet is a drift, loud is a scatter. */
+const MAX_PARTICLES = 280;
+const particles = [];
+let emitCarry = 0;
+
+function emitParticles(dt, hue) {
+  const src = view.hands.chord, held = view.held;
+  if (!src || !held || !held.degree || view.level <= 0.02) return;
+
+  const W = canvas.width, H = canvas.height;
+  emitCarry += view.level * 95 * dt / 1000;
+  let n = Math.min(Math.floor(emitCarry), 12);
+  emitCarry -= n;
+
+  // Off the fingertips that are actually up, so the sound looks like it is
+  // coming from the fingers making it.
+  const up = FINGERS.filter(f => view.gates.chord && view.gates.chord[f].on);
+  const spread = 0.35 + view.level * 2.4;
+
+  while (n-- > 0 && particles.length < MAX_PARTICLES) {
+    const p = up.length ? src[TIP[up[(Math.random() * up.length) | 0]]] : src[MID_MCP];
+    particles.push({
+      x: p.x * W + (Math.random() - .5) * 16,
+      y: p.y * H + (Math.random() - .5) * 16,
+      vx: (Math.random() - .5) * 70 * spread,
+      vy: -25 - Math.random() * 100 * (0.3 + view.level),
+      life: 1,
+      decay: 0.55 + Math.random() * 0.75,
+      size: 2 + Math.random() * 3.5,
+      hue,
+    });
+  }
+}
+
+function stepParticles(dt) {
+  const W = canvas.width, H = canvas.height, s = dt / 1000;
+  const turb = 45 + view.level * 300;         // erratic in proportion to level
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vx += (Math.random() - .5) * turb * s;
+    p.vy += (Math.random() - .5) * turb * s - 35 * s;
+    p.x += p.vx * s;
+    p.y += p.vy * s;
+    p.life -= p.decay * s;
+    if (p.life <= 0 || p.x < -30 || p.x > W + 30 || p.y < -30 || p.y > H + 30) {
+      particles.splice(i, 1);
+    }
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const s = p.size * (0.35 + p.life * 0.65);
+    g2.fillStyle = "hsla(" + p.hue + ", 92%, " + (58 + p.life * 28) + "%, " + (p.life * .85) + ")";
+    g2.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+  }
+}
+
+/* ---- the shapes the scanner look is built from ---------------------- */
+
+// Corner brackets rather than a closed rectangle: a box says "border", four
+// corners say "this is the thing being looked at".
+function bracket(x, y, w, h, stroke, len) {
+  const L = Math.min(len || 20, w * .35, h * .35);
+  g2.strokeStyle = stroke;
+  g2.lineWidth = 1.5;
+  g2.beginPath();
+  g2.moveTo(x, y + L);         g2.lineTo(x, y);         g2.lineTo(x + L, y);
+  g2.moveTo(x + w - L, y);     g2.lineTo(x + w, y);     g2.lineTo(x + w, y + L);
+  g2.moveTo(x + w, y + h - L); g2.lineTo(x + w, y + h); g2.lineTo(x + w - L, y + h);
+  g2.moveTo(x + L, y + h);     g2.lineTo(x, y + h);     g2.lineTo(x, y + h - L);
+  g2.stroke();
+}
+
+function reticle(x, y, s, stroke, locked) {
+  const h = s / 2, L = s * .34;
+  if (locked) {
+    g2.fillStyle = "rgba(255,255,255,.95)";
+    g2.fillRect(x - 3.5, y - 3.5, 7, 7);
+  }
+  g2.strokeStyle = stroke;
+  g2.lineWidth = locked ? 2 : 1;
+  g2.beginPath();
+  g2.moveTo(x - h, y - h + L); g2.lineTo(x - h, y - h); g2.lineTo(x - h + L, y - h);
+  g2.moveTo(x + h - L, y - h); g2.lineTo(x + h, y - h); g2.lineTo(x + h, y - h + L);
+  g2.moveTo(x + h, y + h - L); g2.lineTo(x + h, y + h); g2.lineTo(x + h - L, y + h);
+  g2.moveTo(x - h + L, y + h); g2.lineTo(x - h, y + h); g2.lineTo(x - h, y + h - L);
+  g2.stroke();
+}
+
+function drawHandHud(role, now) {
+  const lm = view.hands[role], gate = view.gates[role], sc = view.scores[role];
+  const W = canvas.width, H = canvas.height, c = HUD[role];
+
+  // Hairlines. The old three-pixel bones read as a cartoon skeleton; one
+  // pixel reads as a measurement.
+  g2.lineWidth = 1;
+  g2.strokeStyle = c.tint + ".45)";
+  g2.beginPath();
+  for (const b of BONES) {
+    g2.moveTo(lm[b[0]].x * W, lm[b[0]].y * H);
+    g2.lineTo(lm[b[1]].x * W, lm[b[1]].y * H);
+  }
+  g2.stroke();
+
+  // Every one of the 21 landmarks is a data point, so draw it as one.
+  g2.fillStyle = c.tint + ".6)";
+  for (const p of lm) g2.fillRect(p.x * W - 1.5, p.y * H - 1.5, 3, 3);
+
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const p of lm) {
+    x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+  }
+  const pad = .035;
+  const bx = (x0 - pad) * W, by = (y0 - pad) * H;
+  const bw = (x1 - x0 + pad * 2) * W, bh = (y1 - y0 + pad * 2) * H;
+  bracket(bx, by, bw, bh, c.tint + ".85)", W * .022);
+
+  // A line travelling down the box. The two hands are offset half a cycle
+  // apart so they do not pulse in unison, which would look like a flash.
+  const sy = by + ((now / 1500 + (role === "mod" ? .5 : 0)) % 1) * bh;
+  g2.strokeStyle = c.tint + ".3)";
+  g2.lineWidth = 1;
+  g2.beginPath(); g2.moveTo(bx, sy); g2.lineTo(bx + bw, sy); g2.stroke();
+
+  const tiny = Math.round(H * .017);
+  for (const f of FINGERS) {
+    const p = lm[TIP[f]], on = gate && gate[f].on;
+    const x = p.x * W, y = p.y * H;
+    reticle(x, y, on ? 24 : 15, on ? "#ffffff" : c.tint + ".5)", on);
+    if (sc) {
+      g2.font = "600 " + tiny + "px ui-monospace, monospace";
+      g2.textAlign = "center";
+      g2.fillStyle = on ? "rgba(255,255,255,.92)" : c.tint + ".45)";
+      g2.fillText(sc[f].toFixed(2), x, y + (on ? 24 : 15) / 2 + tiny * 1.5);
+    }
+  }
+
+  drawDataBlock(role, bx + bw + 12, by, c);
+}
+
+// The numbers, in a block beside the hand rather than scattered over it.
+function drawDataBlock(role, x, y, c) {
+  const W = canvas.width, H = canvas.height;
+  const held = view.held || SILENCE;
+  const pad2 = n => String(n).padStart(3, " ");
+
+  const lines = role === "chord"
+    ? [c.label,
+       "POS  " + (held.degree || "--"),
+       "QUAL " + (held.quality ? QUALITY_TEXT[held.quality].toUpperCase() : "--"),
+       "TILT " + pad2(Math.round(Math.abs(view.tilt))) + "\u00b0 " + (view.flip ? "FLIP" : "FLAT"),
+       "HGT  " + view.height.toFixed(2),
+       "LVL  " + pad2(Math.round(view.level * 100)) + "%"]
+    : [c.label,
+       "VCE  " + (VOICING_TEXT[held.voicing] || "--").toUpperCase(),
+       "SHFT " + (held.shift === 1 ? "SHARP" : held.shift === 12 ? "+8VE" : "--"),
+       "FILT " + pad2(Math.round(view.cut * 100)) + "%",
+       "ECHO " + pad2(Math.round(view.echo * 100)) + "%"];
+
+  const fs = Math.round(H * .021), lh = fs * 1.55;
+  g2.font = "600 " + fs + "px ui-monospace, monospace";
+  g2.textAlign = "left";
+  let wide = 0;
+  for (const l of lines) wide = Math.max(wide, g2.measureText(l).width);
+  const bw = wide + 16, bh = lines.length * lh + 12;
+  const bx = Math.min(Math.max(x, 4), W - bw - 4);
+  const by = Math.min(Math.max(y, 4), H - bh - 4);
+
+  g2.fillStyle = "rgba(4,10,16,.66)";
+  g2.fillRect(bx, by, bw, bh);
+  g2.strokeStyle = c.tint + ".45)";
+  g2.lineWidth = 1;
+  g2.strokeRect(bx + .5, by + .5, bw, bh);
+
+  for (let i = 0; i < lines.length; i++) {
+    g2.fillStyle = i === 0 ? c.tint + ".95)" : "rgba(226,244,255,.82)";
+    g2.fillText(lines[i], bx + 8, by + 10 + fs + i * lh);
+  }
+}
+
+// Tick gauges down the sides. A solid bar would be a progress meter; ticks
+// read as an instrument that is measuring something.
+function gauge(x, y, h, v, label, tint) {
+  const H = canvas.height, n = 26;
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const w = i % 5 === 0 ? 18 : 10;
+    g2.fillStyle = tint + (t <= v ? ".92)" : ".16)");
+    g2.fillRect(x - w / 2, y + h - t * h - 1.5, w, 3);
+  }
+  g2.font = "600 " + Math.round(H * .017) + "px ui-monospace, monospace";
+  g2.textAlign = "center";
+  g2.fillStyle = tint + ".7)";
+  g2.fillText(label, x, y + h + H * .035);
+}
+
+function drawGauges() {
+  const W = canvas.width, H = canvas.height;
+  gauge(W * .038, H * .2, H * .46, view.level, "LVL", "rgba(120,220,255,");
+  gauge(W - W * .038, H * .2, H * .46, view.cut, "FLT", "rgba(255,180,84,");
+}
+
+/* The waveform is what makes the sound visible without anyone having to know
+ * what a filter is. Three offset traces rather than one, because a single
+ * hairline disappears against a busy background. */
 function drawScope(degree) {
   if (!analyser) return;
   analyser.getByteTimeDomainData(scope);
 
   const W = canvas.width, H = canvas.height;
-  const baseline = H * 0.87;
-  const amp = H * 0.20;
-  const hue = degree ? degreeHue(degree) : 210;
-  const sat = degree ? 90 : 12;
+  const baseline = H * .87, amp = H * .19;
+  const hue = degree ? degreeHue(degree) : 205;
+  const sat = degree ? 92 : 14;
   const step = Math.max(1, Math.floor(scope.length / W));
+  const span = W / (scope.length / step);
 
-  for (const [dy, alpha, width] of [[-5, 0.30, 2], [0, 0.85, 2.5], [5, 0.30, 2]]) {
+  const passes = [[-5, .28, 1], [0, .9, 2], [5, .28, 1]];
+  for (let k = 0; k < passes.length; k++) {
+    const dy = passes[k][0], alpha = passes[k][1], lw = passes[k][2];
     g2.beginPath();
-    for (let i = 0, x = 0; i < scope.length; i += step, x += W / (scope.length / step)) {
+    for (let i = 0, x = 0; i < scope.length; i += step, x += span) {
       const y = baseline + dy + (scope[i] - 128) / 128 * amp;
       if (i === 0) g2.moveTo(x, y); else g2.lineTo(x, y);
     }
-    g2.strokeStyle = `hsla(${hue}, ${sat}%, 62%, ${alpha})`;
-    g2.lineWidth = width;
+    g2.strokeStyle = "hsla(" + hue + ", " + sat + "%, 62%, " + alpha + ")";
+    g2.lineWidth = lw;
     g2.stroke();
   }
+
+  // Ticks along the baseline, so it sits on an axis rather than floating.
+  g2.fillStyle = "hsla(" + hue + ", " + sat + "%, 62%, .22)";
+  for (let x = 0; x < W; x += 24) g2.fillRect(x, baseline - 1, 8, 1);
 }
 
 /* The big centre-bottom name. Chord symbol and roman numeral together,
  * because the symbol says what you are hearing and the numeral says where
  * you are in the key - and which one you want depends on who is watching. */
-function drawReadout(degree, q, flip, voicing, shift) {
+function drawReadout(held) {
   const W = canvas.width, H = canvas.height;
   g2.textAlign = "center";
 
-  if (!degree) {
-    g2.fillStyle = "rgba(230,237,243,.28)";
-    g2.font = "600 " + Math.round(H * 0.030) + "px ui-monospace, monospace";
-    g2.fillText("—", W / 2, H * 0.885);
+  if (!held.degree) {
+    g2.fillStyle = "rgba(160,205,235,.32)";
+    g2.font = "600 " + Math.round(H * .03) + "px ui-monospace, monospace";
+    g2.fillText("\u00b7 \u00b7 \u00b7", W / 2, H * .885);
     return;
   }
 
-  const hue = degreeHue(degree);
-  const roman = romanName(degree, q);
-  const main = chordName(degree, q, voicing, shift) + (roman ? " (" + roman + ")" : "");
-  const oct = cfg.octave + (shift === 12 ? 1 : 0);
-  const sub = QUALITY_TEXT[q] +
-              (isLetters() ? "" : flip ? " · flipped" : " · in key") +
-              " · " + VOICING_TEXT[voicing] +
-              (oct ? "  " + (oct > 0 ? "+" : "") + oct + "8ve" : "");
+  const hue = degreeHue(held.degree);
+  const roman = romanName(held.degree, held.quality);
+  const main = chordName(held.degree, held.quality, held.voicing, held.shift) +
+               (roman ? "  " + roman : "");
+  const oct = cfg.octave + (held.shift === 12 ? 1 : 0);
+  const sub = [QUALITY_TEXT[held.quality],
+               isLetters() ? null : (held.flip ? "FLIPPED" : "IN KEY"),
+               VOICING_TEXT[held.voicing],
+               held.shift === 1 ? "SHARP" : null,
+               oct ? (oct > 0 ? "+" : "") + oct + "8VE" : null]
+              .filter(Boolean).join("  \u00b7  ").toUpperCase();
+
+  const fs = Math.round(H * .062);
+  g2.font = "700 " + fs + "px ui-monospace, monospace";
+  const wide = g2.measureText(main).width;
 
   g2.save();
-  g2.shadowColor = "rgba(0,0,0,.85)";
-  g2.shadowBlur = 14;
-  g2.fillStyle = `hsl(${hue}, 85%, 66%)`;
-  g2.font = "700 " + Math.round(H * 0.058) + "px ui-monospace, monospace";
-  g2.fillText(main, W / 2, H * 0.885);
-
-  g2.fillStyle = "rgba(230,237,243,.72)";
-  g2.font = "600 " + Math.round(H * 0.021) + "px ui-monospace, monospace";
-  g2.fillText(sub, W / 2, H * 0.925);
+  g2.shadowColor = "rgba(0,0,0,.9)";
+  g2.shadowBlur = 18;
+  g2.fillStyle = "hsl(" + hue + ", 90%, 68%)";
+  g2.fillText(main, W / 2, H * .885);
+  g2.font = "600 " + Math.round(H * .02) + "px ui-monospace, monospace";
+  g2.fillStyle = "rgba(226,244,255,.78)";
+  g2.fillText(sub, W / 2, H * .928);
   g2.restore();
+
+  // Bracketed like a captured value rather than a caption.
+  bracket(W / 2 - wide / 2 - 24, H * .885 - fs * .88, wide + 48, fs * 1.18,
+          "hsla(" + hue + ", 90%, 68%, .5)", 16);
+}
+
+// The frame around everything, and the one line of status that belongs on
+// the recording rather than in the panel.
+function drawChrome() {
+  const W = canvas.width, H = canvas.height;
+  const m = Math.round(W * .016);
+  bracket(m, m, W - m * 2, H - m * 2, "rgba(120,220,255,.32)", Math.round(W * .034));
+
+  const tracked = (view.hands.chord ? 1 : 0) + (view.hands.mod ? 1 : 0);
+  g2.font = "600 " + Math.round(H * .019) + "px ui-monospace, monospace";
+  g2.textAlign = "left";
+  g2.fillStyle = "rgba(120,220,255,.62)";
+  g2.fillText("HAND SYNTH  \u00b7  " + cfg.mode.toUpperCase() +
+              "  \u00b7  TRACK " + tracked + "/2  \u00b7  " +
+              Math.round(fps || 0) + " FPS",
+              m + 12, m + H * .036);
 }
 
 function drawPaused() {
   const W = canvas.width, H = canvas.height;
-  g2.fillStyle = "rgba(11,13,16,.45)";
+  g2.fillStyle = "rgba(4,10,16,.55)";
   g2.fillRect(0, 0, W, H);
+  bracket(W * .3, H * .42, W * .4, H * .16, "rgba(120,220,255,.5)", 28);
   g2.textAlign = "center";
-  g2.fillStyle = "rgba(230,237,243,.92)";
-  g2.font = "700 " + Math.round(H * 0.058) + "px ui-monospace, monospace";
-  g2.fillText("PAUSED", W / 2, H * 0.5);
-  g2.fillStyle = "rgba(230,237,243,.5)";
-  g2.font = "600 " + Math.round(H * 0.021) + "px ui-monospace, monospace";
-  g2.fillText("space to resume", W / 2, H * 0.55);
-}
-
-function drawHand(lm, gate, tag) {
-  const W = canvas.width, H = canvas.height;
-
-  g2.lineWidth = 3;
-  g2.strokeStyle = tag === "chord" ? "rgba(122,162,247,.55)" : "rgba(255,180,84,.55)";
-  g2.beginPath();
-  for (const bone of BONES) {
-    g2.moveTo(lm[bone[0]].x * W, lm[bone[0]].y * H);
-    g2.lineTo(lm[bone[1]].x * W, lm[bone[1]].y * H);
-  }
-  g2.stroke();
-
-  for (const f of FINGERS) {
-    const on = gate && gate[f].on;
-    g2.beginPath();
-    g2.arc(lm[TIP[f]].x * W, lm[TIP[f]].y * H, on ? 13 : 7, 0, Math.PI * 2);
-    g2.fillStyle = on ? (tag === "chord" ? "#3ddc84" : "#ffb454") : "rgba(230,237,243,.30)";
-    g2.fill();
-  }
-
-  g2.fillStyle = "rgba(230,237,243,.75)";
-  g2.font = "600 20px ui-monospace, monospace";
-  g2.textAlign = "center";
-  g2.fillText(tag === "chord" ? "CHORD" : "MODIFY", lm[WRIST].x * W, lm[WRIST].y * H + 34);
+  g2.fillStyle = "rgba(226,244,255,.94)";
+  g2.font = "700 " + Math.round(H * .058) + "px ui-monospace, monospace";
+  g2.fillText("PAUSED", W / 2, H * .5);
+  g2.fillStyle = "rgba(120,220,255,.55)";
+  g2.font = "600 " + Math.round(H * .021) + "px ui-monospace, monospace";
+  g2.fillText("SPACE TO RESUME", W / 2, H * .55);
 }
 </script>
 </body>
